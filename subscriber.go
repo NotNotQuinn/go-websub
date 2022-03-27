@@ -43,6 +43,10 @@ type Subscriber struct {
 	leaseLength   time.Duration
 }
 
+func (s Subscriber) BaseUrl() string {
+	return s.baseUrl
+}
+
 func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
 		subscriptions: make(map[string]*SSubscription),

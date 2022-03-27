@@ -90,6 +90,10 @@ type HSubscription struct {
 	Secret string
 }
 
+func (h Hub) BaseUrl() string {
+	return h.baseUrl
+}
+
 // NewHub creates a new hub with the specified options and starts background goroutines.
 func NewHub(hubUrl string, options ...HubOption) *Hub {
 	h := &Hub{

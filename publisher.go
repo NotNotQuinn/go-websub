@@ -29,6 +29,10 @@ type Publisher struct {
 	publishedContent map[string]*publishedContent
 }
 
+func (p Publisher) BaseUrl() string {
+	return p.baseUrl
+}
+
 func NewPublisher(baseUrl, hubUrl string, options ...PublisherOption) *Publisher {
 	p := &Publisher{
 		baseUrl:          strings.TrimSuffix(baseUrl, "/"),
