@@ -15,6 +15,8 @@ import (
 	"github.com/tomnomnom/linkheader"
 )
 
+// TODO: refresh expiring subscriptions
+
 var (
 	// topic not discoverable
 	ErrTopicNotDiscoverable = errors.New("topic not discoverable")
@@ -22,12 +24,13 @@ var (
 	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription request")
 )
 
-// a sSubscription is a subscription in the context of a Subscriber.
-type sSubscription struct {
-	topic              string
-	hub                string
-	expires            time.Time
-	id                 string
+// an SSubscription is a subscription in the context of a Subscriber.
+type SSubscription struct {
+	Topic              string
+	Hub                string
+	Secret             string
+	Expires            time.Time
+	Id                 string
 	callback           SubscribeCallback
 	pendingSubscribe   bool
 	pendingUnsubscribe bool
@@ -35,14 +38,14 @@ type sSubscription struct {
 
 type Subscriber struct {
 	// maps subscription id to subscription
-	subscriptions map[string]*sSubscription
+	subscriptions map[string]*SSubscription
 	baseUrl       string
 	leaseLength   time.Duration
 }
 
 func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
-		subscriptions: make(map[string]*sSubscription),
+		subscriptions: make(map[string]*SSubscription),
 		baseUrl:       strings.TrimRight(baseUrl, "/"),
 		leaseLength:   time.Hour * 24 * 10,
 	}
@@ -74,7 +77,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(400)
 			w.Write([]byte("missing 'hub.topic' query parameter"))
 			return
-		} else if q.Get("hub.topic") != sub.topic {
+		} else if q.Get("hub.topic") != sub.Topic {
 			// doesnt match
 			w.WriteHeader(404)
 			w.Write([]byte("'hub.topic' query parameter does not match internal"))
@@ -114,7 +117,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			sub.expires = time.Now().Add(time.Duration(seconds) * time.Second)
+			sub.Expires = time.Now().Add(time.Duration(seconds) * time.Second)
 			sub.pendingSubscribe = false
 
 			w.WriteHeader(200)
@@ -151,15 +154,40 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(200)
 
-		mybytes, err := io.ReadAll(r.Body)
+		content, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		reader := bytes.NewReader(mybytes)
+		contentReader := bytes.NewReader(content)
 
-		sub.callback(r.Header.Get("Content-Type"), reader)
-		return
+		signature := r.Header.Get("X-Hub-Signature")
+
+		if sub.Secret != "" {
+			if signature == "" {
+				return
+			}
+
+			split := strings.Split(signature, "=")
+			if len(split) < 2 {
+				// invalid signature format
+				return
+			}
+
+			hashFunction, hash := split[0], split[1]
+			realHash, _ := calculateHash(hashFunction, sub.Secret, content)
+
+			if hash != realHash {
+				// invalid signature
+				return
+			}
+
+			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
+		} else {
+			// no secret or signature
+			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
+		}
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		w.Write([]byte("Method not allowed"))
@@ -177,6 +205,8 @@ func SWithBaseUrl(baseUrl string) SubscriberOption {
 }
 
 // SWithLeaseLength sets the LeaseLength for a subscriber
+//
+// Default lease length is 10 days
 func SWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
 	return func(s *Subscriber) {
 		s.leaseLength = LeaseLength
@@ -184,25 +214,31 @@ func SWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
 }
 
 // a SubscribeCallback is called when a subscriber receives a publish to the related topic.
-type SubscribeCallback func(contentType string, body io.Reader)
+type SubscribeCallback func(sub *SSubscription, contentType string, body io.Reader)
 
-func (s *Subscriber) Subscribe(topicUrl string, callback SubscribeCallback) (*sSubscription, error) {
-	self, hub, err := discover(topicUrl)
+// subscribes to updates to the topicUrl, verifying using the secret
+//
+// If the secret is an empty string, it is omited.
+//
+// When updates happen, the callback is called.
+func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SSubscription, error) {
+	self, hub, err := s.discover(topicUrl)
 
 	if err != nil {
 		return nil, err
 	}
 
-	sub := &sSubscription{
-		topic:            self,
-		hub:              hub,
-		expires:          time.Now().Add(s.leaseLength),
-		id:               uuid.New().String(),
+	sub := &SSubscription{
+		Topic:            self,
+		Hub:              hub,
+		Expires:          time.Now().Add(s.leaseLength),
+		Id:               uuid.New().String(),
+		Secret:           secret,
 		callback:         callback,
 		pendingSubscribe: true,
 	}
 
-	s.subscriptions[sub.id] = sub
+	s.subscriptions[sub.Id] = sub
 
 	err = s.sendRequest(sub, "subscribe")
 
@@ -216,21 +252,27 @@ func (s *Subscriber) Subscribe(topicUrl string, callback SubscribeCallback) (*sS
 // Unsubscribe requests the hub to stop sending updates.
 //
 // All events received in the meantime will still be fulfulled.
-func (s *Subscriber) Unsubscribe(sub *sSubscription) error {
+func (s *Subscriber) Unsubscribe(sub *SSubscription) error {
 	sub.pendingUnsubscribe = true
 	return s.sendRequest(sub, "unsubscribe")
 }
 
-func (s *Subscriber) sendRequest(sub *sSubscription, mode string) error {
-	body := url.Values{
+func (s *Subscriber) sendRequest(sub *SSubscription, mode string) error {
+	vals := url.Values{
 		"hub.mode":          []string{mode},
-		"hub.topic":         []string{sub.topic},
-		"hub.callback":      []string{s.baseUrl + "/" + sub.id},
+		"hub.topic":         []string{sub.Topic},
+		"hub.callback":      []string{s.baseUrl + "/" + sub.Id},
 		"hub.lease_seconds": []string{fmt.Sprint(int(s.leaseLength.Seconds()))},
-	}.Encode()
+	}
+
+	if sub.Secret != "" {
+		vals.Set("hub.secret", sub.Secret)
+	}
+
+	body := vals.Encode()
 
 	resp, err := http.Post(
-		sub.hub,
+		sub.Hub,
 		"application/x-www-form-urlencoded",
 		strings.NewReader(body),
 	)
@@ -264,7 +306,7 @@ func (s *Subscriber) sendRequest(sub *sSubscription, mode string) error {
 // discover makes a GET request to the URL and checks link headers for "self", and "hub".
 //
 // Returns ErrTopicNotDiscoverable if either link is missing.
-func discover(topic string) (self string, hub string, err error) {
+func (Subscriber) discover(topic string) (self string, hub string, err error) {
 	resp, err := http.Get(topic)
 	if err != nil {
 		log.Error().
@@ -279,8 +321,15 @@ func discover(topic string) (self string, hub string, err error) {
 	// check for link headers
 	links := linkheader.ParseMultiple(resp.Header.Values("Link"))
 
-	self = links.FilterByRel("self")[0].URL
-	hub = links.FilterByRel("hub")[0].URL
+	selfs := links.FilterByRel("self")
+	if len(selfs) > 0 {
+		self = selfs[0].URL
+	}
+
+	hubs := links.FilterByRel("hub")
+	if len(hubs) > 0 {
+		hub = hubs[0].URL
+	}
 
 	if self != "" && hub != "" {
 		return

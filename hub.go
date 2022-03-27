@@ -2,14 +2,8 @@ package websub
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha1"
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,16 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 	"github.com/tomnomnom/linkheader"
 )
 
-func Logger() zerolog.Logger {
-	return log
-}
-
 var (
-	log = zerolog.New(zerolog.NewConsoleWriter())
 
 	// a non 2xx status code was returned when getting topic content
 	ErrNon2xxGettingContent = errors.New("a non 2xx status code was returned when getting topic content")
@@ -47,7 +35,7 @@ type Hub struct {
 	userAgent string
 	// The hash function used to sign content distribution requests
 	//
-	// One of "sha1", "sha256", "sha384", "sha512".
+	// One of "sha1", "sha256", "sha384", or "sha512".
 	hashFunction string
 	// The number of times to retry failed POST requests to subscribers.
 	retryLimit int
@@ -183,9 +171,8 @@ func HWithDefaultLease(d time.Duration) HubOption {
 // of the POST request if they provide hub.content = "body" and hub.mode = "publish".
 // In this case, the Content-Type of the post request is used when distributing publish events.
 //
-// If not enabled, the behavior is as if they havent provided hub.content = "body".
-//
-// NOTE: This allows any machine with internet access to the hub to publish any content
+// NOTE: Because of the lack of authentication for publishers, this allows
+// any machine with internet access to the hub to publish any content
 // under any topic. Use with caution.
 func HAllowPostBodyAsContent(enable bool) HubOption {
 	return func(h *Hub) {
@@ -519,8 +506,8 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 // Publish publishes a topic with the specified content and content-type.
 func (h *Hub) Publish(topic, contentType string, content []byte) {
 	for _, sub := range h.subscriptions[topic] {
-		if sub.Topic == topic && sub.Expires.After(time.Now()) {
-			go func() {
+		if sub.Expires.After(time.Now()) {
+			go func(sub *HSubscription) {
 				pub := &hPublish{
 					callback:    sub.Callback,
 					topic:       topic,
@@ -539,9 +526,8 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 					pub.failedCount++
 					h.failedPublishes <- pub
 				}
-			}()
+			}(sub)
 		}
-
 	}
 }
 
@@ -585,30 +571,9 @@ func (h *Hub) disbatchPublish(pub *hPublish) error {
 
 // newSignature generates an X-Hub-Signature header
 func (h *Hub) newSignature(content []byte, secret string) string {
-	var hasher func() hash.Hash
-	var hashName = h.hashFunction
+	hash, hashName := calculateHash(h.hashFunction, secret, content)
 
-	switch h.hashFunction {
-	case "sha1":
-		hasher = sha1.New
-	case "sha256":
-		hasher = sha256.New
-	case "sha384":
-		hasher = sha512.New384
-	case "sha512":
-		hasher = sha512.New
-	default:
-		log.Warn().
-			Str("hashFunction", h.hashFunction).
-			Msg("hash function not recognised, using sha1")
-		hashName = "sha1"
-		hasher = sha1.New
-	}
-
-	mac := hmac.New(hasher, []byte(secret))
-	mac.Write(content)
-
-	return hashName + "=" + hex.EncodeToString(mac.Sum(nil))
+	return hashName + "=" + hash
 }
 
 // gets the topic content from the topic URL, via GET request.

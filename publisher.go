@@ -21,9 +21,10 @@ type publishedContent struct {
 }
 
 type Publisher struct {
-	postBodyAsContent bool
-	baseUrl           string
-	hubUrl            string
+	postBodyAsContent      bool
+	advertiseInvalidTopics bool
+	baseUrl                string
+	hubUrl                 string
 	// maps id to published content
 	publishedContent map[string]*publishedContent
 }
@@ -46,12 +47,21 @@ type PublisherOption func(p *Publisher)
 
 // PWithPostBodyAsContent sends what is normally the body as the query parameters,
 // and sends the content as the body. Also adds hub.content="body" in the query parameters.
+//
+// Important: If the hub does not have this enabled, you will be unable to post.
 func PWithPostBodyAsContent(enabled bool) PublisherOption {
 	return func(p *Publisher) {
 		p.postBodyAsContent = enabled
 	}
 }
 
+// PAdvertiseInvalidTopics will advertise all topics with Link headers and
+// return a 200 OK status as if they have already been published to with blank content.
+func PAdvertiseInvalidTopics(enabled bool) PublisherOption {
+	return func(p *Publisher) {
+		p.advertiseInvalidTopics = enabled
+	}
+}
 func (p *Publisher) Publish(topic string, contentType string, content []byte) error {
 	if strings.HasPrefix(topic, p.baseUrl) {
 		p.publishedContent[strings.TrimPrefix(topic, p.baseUrl+"/")] = &publishedContent{
@@ -130,7 +140,7 @@ func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/")
 	pub := p.publishedContent[id]
 
-	if pub == nil {
+	if (pub == nil && !p.advertiseInvalidTopics) || id == "" {
 		w.WriteHeader(404)
 		return
 	}
@@ -145,6 +155,12 @@ func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			URL: p.hubUrl,
 		},
 	}.String())
+
+	if pub == nil && p.advertiseInvalidTopics {
+		w.WriteHeader(200)
+		return
+	}
+
 	w.Header().Add("Content-Type", pub.contentType)
 	w.WriteHeader(200)
 	w.Write(pub.content)
