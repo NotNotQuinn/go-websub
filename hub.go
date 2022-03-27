@@ -84,6 +84,7 @@ type HSubscription struct {
 	// The number of seconds the subscription will be active.
 	LeaseLength int
 	// The date/time the subscription will expire.
+	// Is not set at validation time.
 	Expires time.Time
 	// The secret provided by the subscriber. Empty string means none.
 	Secret string
