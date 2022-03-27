@@ -11,87 +11,200 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alecthomas/repr"
+	"github.com/google/uuid"
 	"github.com/tomnomnom/linkheader"
 )
 
-// Represents the result of "discovering" a topic URL
-type subscriptionTarget struct {
-	// Advertised Hub URL
-	HubURL string
-
-	// Advertised "Self" topic URL (can be different from original)
-	TopicURL string
-}
-
-type subscription struct {
-	// When the subscription expires
-	Expires time.Time
-
-	// Callback registered to this subscription (starting with /)
-	CallbackURL string
-
-	// Topic URL requested for this subscription (dont rely on for identifying requests)
-	RequestedTopic string
-
-	// Real topic URL and Hub URL
-	Target subscriptionTarget
-
-	// The callback function is called whenever an event is received
-	// for this subscription and the subscription is still active
-	//
-	// The body is a copy of the POST body from the hub.
-	CallbackFunc *func(body io.Reader)
-
-	// is true if subscription is pending verification for a (un)subscription from the hub
-	pendingVerification bool
-
-	// if false, the callback will not be called even if an event is received
-	active bool
-}
-
 var (
-	subscriptions []*subscription
-	// SubscriberUrlPrefix is prepended to random data to create unique urls.
-	// If SubscriberUrlPrefix is an empty string, then the URLs are "/RANDOM_DATA"
-	//
-	// An example URL is "/websub/s/RANDOM_DATA".
-	//
-	// Default: "websub/s"
-	SubscriberUrlPrefix string = "websub/s"
+	// topic not discoverable
+	ErrTopicNotDiscoverable = errors.New("topic not discoverable")
+	// hub returned an invalid status code on subscription request
+	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription request")
 )
 
-// Subscribes to the provided topic
-//
-// The callback function gets called with the request body whenever an event is received.
-func Subscribe(topic string, callback func(body io.Reader)) (*subscription, error) {
-	target, err := discover(topic)
+// a sSubscription is a subscription in the context of a Subscriber.
+type sSubscription struct {
+	topic              string
+	hub                string
+	expires            time.Time
+	id                 string
+	callback           SubscribeCallback
+	pendingSubscribe   bool
+	pendingUnsubscribe bool
+}
+
+type Subscriber struct {
+	// maps subscription id to subscription
+	subscriptions map[string]*sSubscription
+	baseUrl       string
+	leaseLength   time.Duration
+}
+
+func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
+	s := &Subscriber{
+		subscriptions: make(map[string]*sSubscription),
+		baseUrl:       strings.TrimRight(baseUrl, "/"),
+		leaseLength:   time.Hour * 24 * 10,
+	}
+
+	for _, opt := range options {
+		opt(s)
+	}
+
+	return s
+}
+
+func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	subId := strings.TrimPrefix(r.URL.Path, "/")
+	switch r.Method {
+	case http.MethodGet:
+		sub, ok := s.subscriptions[subId]
+		if !ok || sub == nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("subscription not found"))
+			return
+		}
+
+		q := r.URL.Query()
+
+		if q.Get("hub.topic") == "" {
+			// possible fake request
+			// the spec requires hub.topic to be sent by the hub
+
+			w.WriteHeader(400)
+			w.Write([]byte("missing 'hub.topic' query parameter"))
+			return
+		} else if q.Get("hub.topic") != sub.topic {
+			// doesnt match
+			w.WriteHeader(404)
+			w.Write([]byte("'hub.topic' query parameter does not match internal"))
+			return
+		}
+
+		switch q.Get("hub.mode") {
+		case "denied":
+			// the hub denied a subscription request
+			delete(s.subscriptions, subId)
+			w.WriteHeader(http.StatusOK)
+
+			log.Error().
+				Str("topic", q.Get("hub.topic")).
+				Str("reason", q.Get("hub.reason")).
+				Msg("Subscription denied")
+
+			return
+		case "subscribe":
+			// the hub accepted a subscribe request
+			if !sub.pendingSubscribe {
+				w.WriteHeader(404)
+				w.Write([]byte("not pending subscription"))
+				return
+			}
+
+			seconds, err := strconv.Atoi(q.Get("hub.lease_seconds"))
+			if err != nil {
+				// The hub will take a 5xx to mean verification failed,
+				// so remove this subscription
+				delete(s.subscriptions, subId)
+
+				log.Err(err).
+					Str("msg", "could not convert 'hub.lease_seconds' from string to int").
+					Msg("subscription cancelled")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			sub.expires = time.Now().Add(time.Duration(seconds) * time.Second)
+			sub.pendingSubscribe = false
+
+			w.WriteHeader(200)
+			w.Write([]byte(q.Get("hub.challenge")))
+			return
+
+		case "unsubscribe":
+			// the hub accepted an usubscribe request
+			if !sub.pendingUnsubscribe {
+				w.WriteHeader(404)
+				w.Write([]byte("not pending unsubscription"))
+				return
+			}
+
+			delete(s.subscriptions, subId)
+			sub.pendingUnsubscribe = false
+
+			w.WriteHeader(200)
+			w.Write([]byte(q.Get("hub.challenge")))
+			return
+
+		default:
+			w.WriteHeader(400)
+			w.Write([]byte("missing 'hub.mode' query parameter"))
+			return
+		}
+	case http.MethodPost:
+		sub, ok := s.subscriptions[subId]
+		if !ok || sub == nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("subscription not found"))
+			return
+		}
+
+		w.WriteHeader(200)
+
+		mybytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		reader := bytes.NewReader(mybytes)
+
+		sub.callback(r.Header.Get("Content-Type"), reader)
+		return
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
+		return
+	}
+}
+
+type SubscriberOption func(*Subscriber)
+
+// SWithBaseUrl sets the baseUrl for a subscriber
+func SWithBaseUrl(baseUrl string) SubscriberOption {
+	return func(s *Subscriber) {
+		s.baseUrl = strings.TrimRight(baseUrl, "/")
+	}
+}
+
+// SWithLeaseLength sets the LeaseLength for a subscriber
+func SWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
+	return func(s *Subscriber) {
+		s.leaseLength = LeaseLength
+	}
+}
+
+// a SubscribeCallback is called when a subscriber receives a publish to the related topic.
+type SubscribeCallback func(contentType string, body io.Reader)
+
+func (s *Subscriber) Subscribe(topicUrl string, callback SubscribeCallback) (*sSubscription, error) {
+	self, hub, err := discover(topicUrl)
+
 	if err != nil {
-		fmt.Println(target)
-		log.Error().
-			Err(err).
-			Str("topic-url", topic).
-			Msg("could not discover topic url")
 		return nil, err
 	}
 
-	url, err := randomURL(SubscriberUrlPrefix)
-
-	if err != nil {
-		return nil, err
+	sub := &sSubscription{
+		topic:            self,
+		hub:              hub,
+		expires:          time.Now().Add(s.leaseLength),
+		id:               uuid.New().String(),
+		callback:         callback,
+		pendingSubscribe: true,
 	}
 
-	sub := &subscription{
-		Expires:             time.Now(),
-		CallbackURL:         url,
-		RequestedTopic:      topic,
-		Target:              *target,
-		CallbackFunc:        &callback,
-		active:              true,
-		pendingVerification: true,
-	}
+	s.subscriptions[sub.id] = sub
 
-	err = registerNewSubscription(sub)
+	err = s.sendRequest(sub, "subscribe")
 
 	if err != nil {
 		return nil, err
@@ -100,184 +213,65 @@ func Subscribe(topic string, callback func(body io.Reader)) (*subscription, erro
 	return sub, nil
 }
 
-// Register a subscription into the memory cache and ServeMux, and request
-// a subscription from the associated hub.
-func registerNewSubscription(sub *subscription) error {
-	if sub == nil {
-		return nil
-	}
+// Unsubscribe requests the hub to stop sending updates.
+//
+// All events received in the meantime will still be fulfulled.
+func (s *Subscriber) Unsubscribe(sub *sSubscription) error {
+	sub.pendingUnsubscribe = true
+	return s.sendRequest(sub, "unsubscribe")
+}
 
-	subscriptions = append(subscriptions, sub)
-	serveMux.Handle(sub.CallbackURL, newSubscriptionHandler(sub))
+func (s *Subscriber) sendRequest(sub *sSubscription, mode string) error {
+	body := url.Values{
+		"hub.mode":          []string{mode},
+		"hub.topic":         []string{sub.topic},
+		"hub.callback":      []string{s.baseUrl + "/" + sub.id},
+		"hub.lease_seconds": []string{fmt.Sprint(int(s.leaseLength.Seconds()))},
+	}.Encode()
 
-	// Subscribe to the topic
-	err := sendSubscribeRequest(sub)
+	resp, err := http.Post(
+		sub.hub,
+		"application/x-www-form-urlencoded",
+		strings.NewReader(body),
+	)
 
 	if err != nil {
 		return err
 	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Not in OK range
+
+		receivedBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		log.Err(ErrNon2xxOnSubReq).
+			Str("status", resp.Status).
+			Str("body-sent", body).
+			Bytes("body-received", receivedBody).
+			Msg(ErrNon2xxOnSubReq.Error())
+		return ErrNon2xxOnSubReq
+	}
+	io.Copy(io.Discard, resp.Body)
 
 	return nil
 }
 
-func newSubscriptionHandler(sub *subscription) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Add("User-Agent", UserAgentSubscriber)
-		// GET is used to verify (un)subscription requests
-		// POST is used for actual events
-		if r.Method == http.MethodGet {
-			if !sub.pendingVerification {
-				// we didnt ask for this?
-				// who are you!
-				repr.Println(sub)
-				w.WriteHeader(404)
-				w.Write([]byte("Not pending verification"))
-				return
-			}
-
-			q := r.URL.Query()
-
-			if q.Get("hub.topic") != sub.Target.TopicURL {
-				w.WriteHeader(404)
-				w.Write([]byte("Invalid topic URL"))
-				return
-			}
-
-			if q.Get("hub.mode") == "denied" {
-				// hub denied us!
-				sub.active = false
-				sub.pendingVerification = false
-				w.WriteHeader(200)
-				return
-			}
-
-			if sub.active {
-				// we should be verifying a subscription
-				if q.Get("hub.mode") != "subscribe" {
-					w.WriteHeader(404)
-					w.Write([]byte("Expected hub.mode=subscribe, found something else"))
-					return
-				}
-
-				// the number of seconds before this subscription expires
-				leaseSecondsStr := q.Get("hub.lease_seconds")
-				leaseSeconds, err := strconv.Atoi(leaseSecondsStr)
-
-				if err != nil {
-					log.Error().Err(err).
-						Str("requested-topic-url", sub.RequestedTopic).
-						Str("real-topic-url", sub.Target.TopicURL).
-						Str("hub-url", sub.Target.HubURL).
-						Str("raw-incoming-req", r.URL.String()).
-						Msg("error converting string to int (hub.lease_seconds)")
-					w.WriteHeader(500) // internal server error
-					// TODO: retry subscribing to subscriptions that fail in this way.
-					sub.active = false
-					sub.pendingVerification = false
-					return
-				}
-
-				sub.Expires = time.Now().Add(time.Duration(leaseSeconds) * time.Second)
-			} else {
-				// we should be verifying an unsubscription
-				if q.Get("hub.mode") != "unsubscribe" {
-					w.WriteHeader(404)
-					w.Write([]byte("Expected hub.mode=unsubscribe, found something else"))
-					return
-				}
-			}
-
-			// looks like a legit request, respond with the challenge
-			// to verify
-			w.WriteHeader(200)
-			w.Write([]byte(q.Get("hub.challenge")))
-			sub.pendingVerification = false
-
-			return
-		} else if r.Method == http.MethodPost {
-			// An event was triggered
-			buf := bytes.NewBuffer(nil)
-			io.Copy(buf, r.Body)
-			r.Body.Close()
-			w.WriteHeader(200) // acknowledge we got the event
-
-			if sub.CallbackFunc != nil && sub.active {
-				(*sub.CallbackFunc)(buf)
-			}
-		} else {
-			// 405: Method Not Allowed
-			w.WriteHeader(405)
-			w.Write([]byte("Method Not Allowed"))
-		}
-	})
-}
-
-// sendSubscribeRequest sends a POST request to the Hub of the subscription.
-func sendSubscribeRequest(sub *subscription) error {
-	if sub == nil {
-		return nil
-	}
-
-	params := url.Values{}
-
-	if BaseURL == "" {
-		return errors.New("cannot send subscribe request before setting BaseURL")
-	}
-
-	fullCallback := strings.TrimRight(BaseURL, "/") + sub.CallbackURL
-
-	params.Set("hub.callback", fullCallback)
-	params.Set("hub.mode", "subscribe")
-	params.Set("hub.topic", sub.Target.TopicURL)
-
-	sub.pendingVerification = true
-	req, err := http.NewRequest(
-		"POST",
-		sub.Target.HubURL,
-		strings.NewReader(params.Encode()),
-	)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("User-Agent", UserAgentSubscriber)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	return resp.Body.Close()
-}
-
-// discover makes a GET request to the URL and checks
-// Link headers for a "hub", and "self".
+// discover makes a GET request to the URL and checks link headers for "self", and "hub".
 //
-// It does not discover from
-// the HTML `<link>` tags,
-// the XML `<link>` tags,
-// or the XML `<atom:link>` tags. (as the specification says it must)
-func discover(topic string) (*subscriptionTarget, error) {
-	target := &subscriptionTarget{}
-	req, err := http.NewRequest("GET", topic, nil)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("topic-url", topic).
-			Msg("could create GET request for topic url")
-		return nil, err
-	}
-
-	req.Header.Set("User-Agent", UserAgentSubscriber)
-
-	resp, err := http.DefaultClient.Do(req)
+// Returns ErrTopicNotDiscoverable if either link is missing.
+func discover(topic string) (self string, hub string, err error) {
+	resp, err := http.Get(topic)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Str("topic-url", topic).
 			Msg("could not GET topic url")
-		return nil, err
+		return
 	}
 
 	defer resp.Body.Close()
@@ -285,19 +279,12 @@ func discover(topic string) (*subscriptionTarget, error) {
 	// check for link headers
 	links := linkheader.ParseMultiple(resp.Header.Values("Link"))
 
-	for _, link := range links {
-		if link.Rel == "self" {
-			target.TopicURL = link.URL
-		}
+	self = links.FilterByRel("self")[0].URL
+	hub = links.FilterByRel("hub")[0].URL
 
-		if link.Rel == "hub" {
-			target.HubURL = link.URL
-		}
+	if self != "" && hub != "" {
+		return
 	}
 
-	if target.TopicURL != "" && target.HubURL != "" {
-		return target, nil
-	}
-
-	return nil, errors.New("could not discover topic/hub url from Link headers")
+	return "", "", ErrTopicNotDiscoverable
 }

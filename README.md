@@ -34,3 +34,16 @@ A conforming publisher MUST advertise topic and hub URLs for a given resource UR
 as described in [Discovery](https://www.w3.org/TR/websub/#discovery).
 
 To publish, POST request with the keys hub.mode="publish" and hub.url=(the URL of the resource that was updated).
+
+## Hub:
+
+A conforming hub:
+
+ *	MUST accept a subscription request with the parameters hub.callback, hub.mode and hub.topic.
+ *	MUST accept a subscription request with a hub.secret parameter.
+ *	MAY respect the requested lease duration in subscription requests.
+ *	MUST allow subscribers to re-request already active subscriptions.
+ *	MUST support unsubscription requests.
+ *	MUST send content distribution requests with a matching content type of the topic URL. (See Content Negotiation)
+ *	MAY reduce the payload of the content distribution to a diff of the contents for supported formats as described in Content Distribution.
+ *	MUST send a X-Hub-Signature header if the subscription was made with a hub.secret as described in Authenticated Content Distribution.

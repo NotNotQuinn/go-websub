@@ -3,7 +3,7 @@ package websub
 import (
 	"bytes"
 	"errors"
-	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,244 +12,140 @@ import (
 )
 
 var (
-	// PublisherUrlPrefix is prepended to topic names to create unique topic urls
-	//
-	// Default: "websub/t"
-	PublisherUrlPrefix string = "websub/t"
-
-	// Keeps track of registered topic Paths in the serveMux
-	registeredPaths = make(map[string]bool)
-
-	// Maps topic URLs to topic objects
-	topics = make(map[string]*topic)
+	ErrNon2xxOnPubReq = errors.New("hub returned a non 2xx status code on publish request")
 )
 
-type topic struct {
-	// The hubs that we are broadcasting updates for this topic to
-	HubURLs []string `json:"hubURLs"`
-
-	// The topic url for this topic
-	TopicURL string `json:"topicURL"`
-
-	// The path registered with the serveMux
-	ServedPath string `json:"servedPath"`
+type publishedContent struct {
+	contentType string
+	content     []byte
 }
 
-// TODO: Allow publishers to have their own URL prefix
-// (fixes issue noted below)
-
-// A publisher publishes all topics to multiple hubs at once
-//
-// Note: If the topic URLs have overlap, all hubs will always get
-// all updates for those urls.
-// For example if you have 2 publishers publish same topic URL,
-// both groups of hubs will get *all* updates from both publishers.
 type Publisher struct {
-	// List of hub URLs that this publisher will publish to.
-	HubURLs []string
+	postBodyAsContent bool
+	baseUrl           string
+	hubUrl            string
+	// maps id to published content
+	publishedContent map[string]*publishedContent
 }
 
-// Creates a new publisher for the listed hub URLs
-func NewPublisher(hubUrls ...string) Publisher {
-	return Publisher{HubURLs: hubUrls}
+func NewPublisher(baseUrl, hubUrl string, options ...PublisherOption) *Publisher {
+	p := &Publisher{
+		baseUrl:          strings.TrimSuffix(baseUrl, "/"),
+		hubUrl:           hubUrl,
+		publishedContent: make(map[string]*publishedContent),
+	}
+
+	for _, opt := range options {
+		opt(p)
+	}
+
+	return p
 }
 
-// Publish publishes a topic to all hubs for this publisher asynchronously.
-func (p Publisher) Publish(topicName, contentType string, content []byte) <-chan error {
-	return p.PublishURL(TopicURL(topicName), contentType, content)
+type PublisherOption func(p *Publisher)
+
+// PWithPostBodyAsContent sends what is normally the body as the query parameters,
+// and sends the content as the body. Also adds hub.content="body" in the query parameters.
+func PWithPostBodyAsContent(enabled bool) PublisherOption {
+	return func(p *Publisher) {
+		p.postBodyAsContent = enabled
+	}
 }
 
-// Publish publishes an arbitrary topic URL to all hubs for this publisher asynchronously.
-func (p Publisher) PublishURL(topicURL, contentType string, content []byte) <-chan error {
-	errs := make(chan error, len(p.HubURLs))
-	for _, hubUrl := range p.HubURLs {
-		go func(hubUrl string) {
-			err := PublishURL(hubUrl, topicURL, contentType, content)
-			if err != nil {
-				log.Error().
-					Err(err).
-					Str("hubUrl", hubUrl).
-					Str("topicURL", topicURL).
-					Msg("could not publish topic to hub")
-				errs <- fmt.Errorf("could not publish topic to hub: %w", err)
-			}
-		}(hubUrl)
-	}
-	return errs
-}
-
-// Publish directly performs a publish to a specific hub
-// and keeps it up to date with new content
-func Publish(hubURL, topicName, contentType string, content []byte) error {
-	return PublishURL(hubURL, TopicURL(topicName), contentType, content)
-}
-
-// Variant of Publish, which publishes an arbitrary topic URL to a
-// specific hub, and keeps the hub updated on any new content for this topic URL
-func PublishURL(hubURL, topicURL, contentType string, content []byte) error {
-	parsedTopic, err := url.Parse(topicURL)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("topic-url", topicURL).
-			Msg("Could not parse topic URL")
-		return err
-	}
-
-	parsedBase, err := url.Parse(BaseURL)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("base-url", BaseURL).
-			Msg("Could not parse BaseURL")
-		return err
-	}
-
-	sameOrigin := parsedBase.Host == parsedTopic.Host
-
-	servedPath := parsedTopic.EscapedPath()
-	if !sameOrigin {
-		servedPath = ""
-	}
-
-	topic := getTopic([]string{hubURL}, topicURL, servedPath)
-	if sameOrigin && !registeredPaths[topic.ServedPath] && topic.ServedPath != "" {
-		// Register an HTTP callback for this topic URL
-		// and advertise the hubs and self in link Headers
-
-		registeredPaths[topic.ServedPath] = true
-		serveMux.Handle(
-			topic.ServedPath,
-			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Add("User-Agent", UserAgentPublisher)
-				if r.Method == http.MethodGet || r.Method == http.MethodHead {
-					links := linkheader.Links{{
-						URL: topicURL,
-						Rel: "self",
-					}}
-
-					for _, topicHubUrl := range topic.HubURLs {
-						links = append(links, linkheader.Link{
-							URL: topicHubUrl,
-							Rel: "hub",
-						})
-					}
-
-					w.Header().Add("Link", links.String())
-					// TODO: Should we provide content-type even though there is no content?
-					// w.Header().Add("Content-Type", topic.contentType)
-					w.WriteHeader(200)
-				} else {
-					w.WriteHeader(405)
-					w.Write([]byte("Method Not Allowed"))
-				}
-			}),
-		)
-	}
-
-	err = postPublishRequest(hubURL, topicURL, contentType, content)
-	if err != nil {
-		log.Error().
-			Err(err).
-			Str("hubUrl", hubURL).
-			Str("topicUrl", topicURL).
-			Str("contentType", contentType).
-			Str("contentLength", fmt.Sprint(len(content))).
-			Msg("could not post publish request")
-		return err
-	}
-
-	return nil
-}
-
-func postPublishRequest(hubURL, topicURL, contentType string, content []byte) error {
-	url, err := url.Parse(hubURL)
-	if err != nil {
-		return err
-	}
-
-	q := url.Query()
-
-	q.Set("hub.mode", "publish")
-	// Some hubs use "hub.topic" and some use "hub.url"
-	q.Set("hub.topic", topicURL)
-	q.Set("hub.url", topicURL)
-
-	url.RawQuery = q.Encode()
-	requestedUrl := url.String()
-
-	req, err := http.NewRequest("POST", requestedUrl, bytes.NewReader(content))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("User-Agent", UserAgentPublisher)
-	req.Header.Set("Content-Type", contentType)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		log.Error().
-			Err(err).
-			Str("request-sent", requestedUrl).
-			Str("content-type", contentType).
-			Str("content-length", fmt.Sprint(len(content))).
-			Str("status-code", fmt.Sprint(resp.StatusCode)).
-			Msg("hub responded with non-2xx status code")
-		return errors.New("hub responded with non-2xx status code")
-	}
-
-	return nil
-}
-
-// getTopic updates or creates a topic with the provided data, and returns the new topic
-func getTopic(hubURLs []string, topicURL, servedPath string) *topic {
-	if topics[topicURL] == nil {
-		topics[topicURL] = &topic{
-			HubURLs:    hubURLs,
-			TopicURL:   topicURL,
-			ServedPath: servedPath,
+func (p *Publisher) Publish(topic string, contentType string, content []byte) error {
+	if strings.HasPrefix(topic, p.baseUrl) {
+		p.publishedContent[strings.TrimPrefix(topic, p.baseUrl+"/")] = &publishedContent{
+			contentType: contentType,
+			content:     content,
 		}
-	} else {
-		updateTopic(topics[topicURL], hubURLs)
 	}
-	return topics[topicURL]
+
+	return p.sendPublishRequest(topic, contentType, content)
 }
 
-func updateTopic(topic *topic, additionalHubURLs []string) {
-	if topic == nil {
+func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte) error {
+	values := url.Values{
+		"hub.mode":  []string{"publish"},
+		"hub.topic": []string{topic},
+		"hub.url":   []string{topic},
+	}
+
+	var hubUrl string
+	var reqContentType string
+	var body io.Reader
+
+	if p.postBodyAsContent {
+		parsed, err := url.Parse(p.hubUrl)
+		if err != nil {
+			return err
+		}
+
+		values.Add("hub.content", "body")
+
+		parsed.RawQuery = strings.TrimPrefix(parsed.Query().Encode()+"&"+values.Encode(), "&")
+		reqContentType = contentType
+		hubUrl = parsed.String()
+		body = bytes.NewReader(content)
+	} else {
+		reqContentType = "application/x-www-form-urlencoded"
+		hubUrl = p.hubUrl
+		body = strings.NewReader(values.Encode())
+	}
+
+	resp, err := http.Post(hubUrl, reqContentType, body)
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Err(err).
+				Int("status-code", resp.StatusCode).
+				Msg("could not publish")
+			return err
+		}
+
+		log.Err(ErrNon2xxOnPubReq).
+			Int("status-code", resp.StatusCode).
+			Str("body", string(bytes)).
+			Msg("could not publish")
+		// Non 2xx
+		return ErrNon2xxOnPubReq
+	}
+
+	return nil
+}
+
+func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte("Method not allowed"))
 		return
 	}
 
-	// add any missing hub URLs
-	for _, url := range additionalHubURLs {
-		if !stringSliceContains(topic.HubURLs, url) {
-			topic.HubURLs = append(topic.HubURLs, url)
-		}
-	}
-}
+	id := strings.TrimPrefix(r.URL.Path, "/")
+	pub := p.publishedContent[id]
 
-// check if string slice contains an item
-func stringSliceContains(s []string, query string) bool {
-	for _, item := range s {
-		if item == query {
-			return true
-		}
-	}
-	return false
-}
-
-// TopicURL returns the URL based off of BaseURL and PublisherUrlPrefix for this name
-//
-// The topicName can contain any valid URL characters, "key/a" and "key-b"
-// are examples of valid topics.
-func TopicURL(topicName string) string {
-	if PublisherUrlPrefix != "" {
-		return strings.TrimRight(BaseURL, "/") + "/" + PublisherUrlPrefix + "/" + topicName
+	if pub == nil {
+		w.WriteHeader(404)
+		return
 	}
 
-	return strings.TrimRight(BaseURL, "/") + "/" + topicName
+	w.Header().Add("Link", linkheader.Links{
+		{
+			Rel: "self",
+			URL: p.baseUrl + "/" + id,
+		},
+		{
+			Rel: "hub",
+			URL: p.hubUrl,
+		},
+	}.String())
+	w.Header().Add("Content-Type", pub.contentType)
+	w.WriteHeader(200)
+	w.Write(pub.content)
 }

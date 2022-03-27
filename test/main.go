@@ -3,58 +3,88 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
-	"os/signal"
+	"net/http"
 	"time"
 
 	"github.com/notnotquinn/go-websub"
 )
 
-var log = websub.GetLogger()
+var log = websub.Logger()
 
-func subscribe_local() {
+func sub_main() {
+	s := websub.NewSubscriber(
+		"http://desktop.qdt.home.arpa:3033/",
+		websub.SWithLeaseLength(time.Hour),
+	)
+
+	// http.Handle("/sub", s.ServeMux)
+
+	go http.ListenAndServe(":3033", s)
+	fmt.Println("[subscriber] Listening on :3033")
+
+	time.Sleep(time.Second * 5)
 	fmt.Println("Subscribing!")
 
-	_, err := websub.Subscribe("http://pi1.qdt.home.arpa/", func(body io.Reader) {
-		fmt.Println("---  Got event!  ---")
-		io.Copy(os.Stdout, body)
-		fmt.Println("---              ---")
-	})
+	_, err := s.Subscribe("http://desktop.qdt.home.arpa:7070/urmomlole",
+		func(contentType string, body io.Reader) {
+			fmt.Println("Received event.", time.Now().Unix())
+			fmt.Printf("contentType: %v\n", contentType)
+			bytes, err := io.ReadAll(body)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("string(bytes): %v\n", string(bytes))
+		},
+	)
 
 	if err != nil {
 		panic(err)
 	}
-
 }
 
-func publish_loop() {
-	tick := time.NewTicker(time.Second * 3)
-	for {
-		pub := websub.NewPublisher("http://localhost:8080/")
-		go func() {
-			errs := pub.Publish("topicname", "application/json", []byte("{\"lmao\": \"xd\"}"))
-			for err := range errs {
-				log.Error().Err(err).Msg("Error publishing.")
+func pub_main() {
+	p := websub.NewPublisher(
+		"http://desktop.qdt.home.arpa:7070/",
+		"http://desktop.qdt.home.arpa:8080/",
+		websub.PWithPostBodyAsContent(true),
+	)
+
+	go http.ListenAndServe(":7070", p)
+	fmt.Println("[publisher] Listening on :7070")
+
+	go func() {
+		ticker := time.NewTicker(time.Second * 6)
+
+		i := 0
+
+		for {
+			fmt.Println("\n--Publish.", time.Now().Unix())
+			err := p.Publish(
+				"http://desktop.qdt.home.arpa:7070/urmomlole", "text/html",
+				[]byte("<h1><strong>urmom lolexd "+fmt.Sprint(i)+"</strong></strong>"),
+			)
+			if err != nil {
+				log.Err(err).Msg("could not publish")
 			}
-		}()
-		<-tick.C
-	}
+			i++
+			<-ticker.C
+		}
+	}()
+}
+
+func hub_main() {
+	h := websub.NewHub(
+		"http://desktop.qdt.home.arpa:8080/",
+		websub.HAllowPostBodyAsContent(true),
+		websub.HWithHashFunction("sha256"),
+	)
+	go http.ListenAndServe(":8080", h)
+	fmt.Println("[hub] Listening on :8080")
 }
 
 func main() {
-	// start web server
-	websub.BaseURL = "http://cd2b-200-50-136-69.ngrok.io/"
-	go websub.ListenAndServe(":3033")
-	fmt.Println("Listening on :3033")
-
-	time.Sleep(time.Second * 5)
-
-	// go publish_loop()
-	go subscribe_local()
-	// stop on interrupt
-	interrupt := make(chan os.Signal, 1)
-
-	signal.Notify(interrupt, os.Interrupt)
-
-	<-interrupt
+	hub_main()
+	pub_main()
+	sub_main()
+	<-make(chan struct{})
 }
