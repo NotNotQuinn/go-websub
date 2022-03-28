@@ -1,3 +1,4 @@
+// Adapted from sniffer and added topic announcements
 package main
 
 import (
@@ -32,6 +33,14 @@ func main() {
 		baseUrl+"/hub/",
 		websub.HAllowPostBodyAsContent(true),
 		websub.HWithHashFunction("sha256"),
+		websub.HExposeTopics(true),
+		websub.HWithSniffer("", func(topic, contentType string, body io.Reader) {
+			bytes, err := io.ReadAll(body)
+			if err != nil {
+				log.Err(err).Msg("error reading body in sniffer")
+			}
+			fmt.Printf("[global sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, string(bytes))
+		}),
 	)
 
 	// register handlers
@@ -50,6 +59,8 @@ func main() {
 		i := 0
 
 		for {
+			<-ticker.C
+
 			fmt.Println("\n--Publish.", time.Now().Unix())
 			err := p.Publish(
 				baseUrl+"/topic/count",
@@ -60,7 +71,6 @@ func main() {
 				log.Err(err).Msg("could not publish")
 			}
 			i++
-			<-ticker.C
 		}
 	}()
 
@@ -68,28 +78,41 @@ func main() {
 
 	fmt.Println("Subscribing!")
 
+	printSubscription := func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		fmt.Printf("[subscription] new publish:\n")
+		fmt.Printf("      topic: %v\n", sub.Topic)
+		fmt.Printf("      content-type: %v\n", contentType)
+		bytes, err := io.ReadAll(body)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("      body: %v\n", string(bytes))
+	}
+
 	// Important: You must publish at least once before subscribing
 	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
 
-	// subscribe to a topic
+	// subscribe to the hub finding new topics
 	_, err := s.Subscribe(
-		baseUrl+"/topic/count",
+		baseUrl+"/hub/topics",
 		"random secret string",
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
-			fmt.Printf("Topic %s updated. %v\n", sub.Topic, time.Now().Unix())
-			fmt.Printf("contentType: %v\n", contentType)
-			bytes, err := io.ReadAll(body)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf("string(bytes): %v\n", string(bytes))
-		},
+		printSubscription,
 	)
 
 	if err != nil {
 		panic(err)
 	}
 
+	// subscribe to a topic
+	_, err = s.Subscribe(
+		baseUrl+"/topic/count",
+		"random secret string",
+		printSubscription,
+	)
+
+	if err != nil {
+		panic(err)
+	}
 	<-make(chan struct{})
 }

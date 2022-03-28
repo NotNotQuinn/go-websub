@@ -34,14 +34,18 @@ func main() {
 		websub.HAllowPostBodyAsContent(true),
 		websub.HWithHashFunction("sha256"),
 		websub.HWithSniffer("", func(topic, contentType string, body io.Reader) {
-			fmt.Println("Sniffed something!")
+			bytes, err := io.ReadAll(body)
+			if err != nil {
+				log.Err(err).Msg("error reading body in sniffer")
+			}
+			fmt.Printf("[sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, string(bytes))
 		}),
 	)
 
 	// register handlers
-	mux.Handle("/sub/", http.StripPrefix("/sub/", s))
-	mux.Handle("/topic/", http.StripPrefix("/topic/", p))
-	mux.Handle("/hub/", http.StripPrefix("/hub/", h))
+	mux.Handle("/sub/", http.StripPrefix("/sub", s))
+	mux.Handle("/topic/", http.StripPrefix("/topic", p))
+	mux.Handle("/hub/", http.StripPrefix("/hub", h))
 
 	// listen for requests
 	go http.ListenAndServe("127.0.0.1:3033", mux)
@@ -72,6 +76,17 @@ func main() {
 
 	fmt.Println("Subscribing!")
 
+	printSubscription := func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		fmt.Printf("[subscription] new publish:\n")
+		fmt.Printf("      topic: %v\n", sub.Topic)
+		fmt.Printf("      content-type: %v\n", contentType)
+		bytes, err := io.ReadAll(body)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("      body: %v\n", string(bytes))
+	}
+
 	// Important: You must publish at least once before subscribing
 	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
@@ -80,15 +95,7 @@ func main() {
 	_, err := s.Subscribe(
 		baseUrl+"/topic/count",
 		"random secret string",
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
-			fmt.Printf("Topic %s updated. %v\n", sub.Topic, time.Now().Unix())
-			fmt.Printf("contentType: %v\n", contentType)
-			bytes, err := io.ReadAll(body)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Printf("string(bytes): %v\n", string(bytes))
-		},
+		printSubscription,
 	)
 
 	if err != nil {
