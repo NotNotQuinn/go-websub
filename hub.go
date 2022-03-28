@@ -525,18 +525,19 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 
 // Publish publishes a topic with the specified content and content-type.
 func (h *Hub) Publish(topic, contentType string, content []byte) {
+	// call all sniffers for this topic, even if no subscriptions exist.
+	go func() {
+		for sniffedTopic, sniffers := range h.sniffers {
+			if sniffedTopic == "" || sniffedTopic == topic {
+				for _, sniffer := range sniffers {
+					(*sniffer)(topic, contentType, bytes.NewReader(content))
+				}
+			}
+		}
+	}()
+
 	for _, sub := range h.subscriptions[topic] {
 		if sub.Expires.After(time.Now()) {
-			go func(sub *HSubscription) {
-				// call all sniffers for this topic
-				for sniffedTopic, sniffers := range h.sniffers {
-					if sniffedTopic == "" || sniffedTopic == topic {
-						for _, sniffer := range sniffers {
-							(*sniffer)(topic, contentType, bytes.NewReader(content))
-						}
-					}
-				}
-			}(sub)
 
 			go func(sub *HSubscription) {
 				pub := &hPublish{
