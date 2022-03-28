@@ -20,6 +20,9 @@ type publishedContent struct {
 	content     []byte
 }
 
+// TODO: Publisher should redirect /topic/something/ to /topic/something
+// or treat them equivialantly
+
 type Publisher struct {
 	postBodyAsContent      bool
 	advertiseInvalidTopics bool
