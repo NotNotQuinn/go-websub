@@ -2,6 +2,7 @@ package websub
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,10 +26,10 @@ var (
 
 // A Hub is a websub hub, and
 type Hub struct {
-	// Allow 'hub.mode=publish-post-content'.
-	//
-	// See websub.HAllowPostContent
+	// See websub.HAllowPostBodyAsContent
 	allowPostBodyAsContent bool
+	// expose topics to /topics
+	exposeTopics bool
 	// The hub url that specifies this hub.
 	hubUrl string
 	// The user-agent to send on all http requests this hub makes.
@@ -59,6 +60,8 @@ type Hub struct {
 	sniffers map[string][]*TopicSniffer
 	// All failed publishes are sent through this channel.
 	failedPublishes chan *hPublish
+	// Newly found topics are sent through this channel
+	newTopic chan string
 }
 
 // represents a single POST request to make to a subscriber
@@ -99,7 +102,7 @@ func (h Hub) HubUrl() string {
 // NewHub creates a new hub with the specified options and starts background goroutines.
 func NewHub(hubUrl string, options ...HubOption) *Hub {
 	h := &Hub{
-		hubUrl:          hubUrl,
+		hubUrl:          strings.TrimRight(hubUrl, "/"),
 		userAgent:       "go-websub-hub",
 		hashFunction:    "sha1",
 		retryInterval:   time.Minute,
@@ -110,6 +113,7 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		cleanupInterval: time.Minute,
 		client:          http.DefaultClient,
 		failedPublishes: make(chan *hPublish),
+		newTopic:        make(chan string),
 		subscriptions:   make(map[string]map[string]*HSubscription),
 		sniffers:        make(map[string][]*TopicSniffer),
 	}
@@ -120,6 +124,11 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 
 	go h.handleFailedPublishes()
 	go h.removeExpiredSubscriptions(h.cleanupInterval)
+	if h.exposeTopics {
+		go h.publishTopicUpdates()
+	} else {
+		go h.consumeTopicUpdates()
+	}
 
 	return h
 }
@@ -127,24 +136,10 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 // A HubOption specifies an option for a hub.
 type HubOption func(*Hub)
 
-// HWithHTTPClient sets the HTTP client that a hub will use
-func HWithHTTPClient(client *http.Client) HubOption {
-	return func(h *Hub) {
-		h.client = client
-	}
-}
-
 // HWithCleanupInterval sets the interval expired subscriptions are removed from the memory
 func HWithCleanupInterval(interval time.Duration) HubOption {
 	return func(h *Hub) {
 		h.cleanupInterval = interval
-	}
-}
-
-// HWithHubUrl sets the url URL for a hub
-func HWithHubUrl(hubUrl string) HubOption {
-	return func(h *Hub) {
-		h.hubUrl = hubUrl
 	}
 }
 
@@ -172,6 +167,13 @@ func HWithMinLease(d time.Duration) HubOption {
 func HWithDefaultLease(d time.Duration) HubOption {
 	return func(h *Hub) {
 		h.defaultLease = d
+	}
+}
+
+// HExposeTopics enables a /topics endpoint that lists all availibe/active topics.
+func HExposeTopics(enable bool) HubOption {
+	return func(h *Hub) {
+		h.exposeTopics = enable
 	}
 }
 
@@ -251,6 +253,12 @@ func HWithRetryLimits(retryLimit int, retryInterval time.Duration) HubOption {
 
 // Handles incoming HTTP requests
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	if r.URL.Path == "/topics" && h.exposeTopics {
+		h.getTopics(w, r)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		w.Write([]byte("Method not allowed"))
@@ -412,6 +420,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						sub.Secret = q.Get("hub.secret")
 					} else {
 						if h.subscriptions[sub.Topic] == nil {
+							h.newTopic <- sub.Topic
 							h.subscriptions[sub.Topic] = make(map[string]*HSubscription)
 						}
 						h.subscriptions[sub.Topic][sub.Callback] = sub
@@ -525,6 +534,11 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 
 // Publish publishes a topic with the specified content and content-type.
 func (h *Hub) Publish(topic, contentType string, content []byte) {
+	if h.subscriptions[topic] == nil {
+		h.newTopic <- topic
+		h.subscriptions[topic] = make(map[string]*HSubscription)
+	}
+
 	// call all sniffers for this topic, even if no subscriptions exist.
 	go func() {
 		for sniffedTopic, sniffers := range h.sniffers {
@@ -675,5 +689,61 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 				}
 			}
 		}
+	}
+}
+
+func (h *Hub) _getTopics() ([]byte, error) {
+	keys := make([]string, 0, len(h.subscriptions))
+	for k := range h.subscriptions {
+		keys = append(keys, k)
+	}
+
+	bytes, err := json.Marshal(keys)
+	if err != nil {
+		return nil, err
+	}
+	return bytes, nil
+}
+func (h *Hub) getTopics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	bytes, err := h._getTopics()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Link", linkheader.Links{
+		{
+			Rel: "self",
+			URL: h.hubUrl + "/topics",
+		},
+		{
+			Rel: "hub",
+			URL: h.hubUrl + "/",
+		}}.String())
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(bytes)
+	return
+}
+
+func (h *Hub) publishTopicUpdates() {
+	for range h.newTopic {
+		bytes, err := h._getTopics()
+		if err != nil {
+			log.Err(err).Msg("could not marshal topic json on publish")
+		}
+
+		go h.Publish(h.hubUrl+"/topics", "application/json", bytes)
+	}
+}
+
+func (h *Hub) consumeTopicUpdates() {
+	for range h.newTopic {
+		//	do nothing
 	}
 }
