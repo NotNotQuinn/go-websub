@@ -55,6 +55,8 @@ type Hub struct {
 	subscriptions map[string]map[string]*HSubscription
 	// Validators that validate each incoming subscription request.
 	validators []*HubSubscriptionValidator
+	// Sniffers allow the hub to "sniff" on publishes.
+	sniffers map[string][]*TopicSniffer
 	// All failed publishes are sent through this channel.
 	failedPublishes chan *hPublish
 }
@@ -90,8 +92,8 @@ type HSubscription struct {
 	Secret string
 }
 
-func (h Hub) BaseUrl() string {
-	return h.baseUrl
+func (h Hub) HubUrl() string {
+	return h.hubUrl
 }
 
 // NewHub creates a new hub with the specified options and starts background goroutines.
@@ -109,6 +111,7 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		client:          http.DefaultClient,
 		failedPublishes: make(chan *hPublish),
 		subscriptions:   make(map[string]map[string]*HSubscription),
+		sniffers:        make(map[string][]*TopicSniffer),
 	}
 
 	for _, opt := range options {
@@ -203,6 +206,18 @@ func HWithUserAgent(userAgent string) HubOption {
 func HWithHashFunction(hashFunction string) HubOption {
 	return func(h *Hub) {
 		h.hashFunction = hashFunction
+	}
+}
+
+type TopicSniffer func(topic string, contentType string, body io.Reader)
+
+// HWithSniffer allows one to "sniff" publishes, receiving events as if they were subscribers.
+// Many sniffers can exist on one hub.
+//
+// If an emptry string is provided as the topic, ALL publishes are sniffed.
+func HWithSniffer(topic string, sniffer TopicSniffer) HubOption {
+	return func(h *Hub) {
+		h.sniffers[topic] = append(h.sniffers[topic], &sniffer)
 	}
 }
 
@@ -512,6 +527,17 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 func (h *Hub) Publish(topic, contentType string, content []byte) {
 	for _, sub := range h.subscriptions[topic] {
 		if sub.Expires.After(time.Now()) {
+			go func(sub *HSubscription) {
+				// call all sniffers for this topic
+				for sniffedTopic, sniffers := range h.sniffers {
+					if sniffedTopic == "" || sniffedTopic == topic {
+						for _, sniffer := range sniffers {
+							(*sniffer)(topic, contentType, bytes.NewReader(content))
+						}
+					}
+				}
+			}(sub)
+
 			go func(sub *HSubscription) {
 				pub := &hPublish{
 					callback:    sub.Callback,
