@@ -20,33 +20,42 @@ import (
 var (
 	// topic not discoverable
 	ErrTopicNotDiscoverable = errors.New("topic not discoverable")
-	// hub returned an invalid status code on subscription request
-	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription request")
+	// hub returned an invalid status code on subscription or unsubscription request
+	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription or unsubscription request")
 )
 
 // an SSubscription is a subscription in the context of a Subscriber.
 type SSubscription struct {
-	Topic              string
-	Hub                string
-	Secret             string
-	Expires            time.Time
-	Id                 string
-	callback           SubscribeCallback
-	pendingSubscribe   bool
+	// Topic URL for this subscription.
+	// Not always equal to the passed topic url.
+	Topic string
+	// Hub URL this subscription is from.
+	Hub string
+	// Secret string used for verifying the hub is the
+	// sender of the subscription.
+	Secret string
+	// The date/time this subcription expires.
+	Expires time.Time
+	// Internal ID for this subscription. Part of the callback URL.
+	Id string
+	// Callback function to be invoked when a publish is received.
+	callback SubscribeCallback
+	// Whether this subscription is pending a subscription verification
+	pendingSubscribe bool
+	// Whether this subscription is pending an unsubscription verification
 	pendingUnsubscribe bool
 }
 
 type Subscriber struct {
-	// maps subscription id to subscription
+	// Maps subscription id to subscription
 	subscriptions map[string]*SSubscription
-	baseUrl       string
-	leaseLength   time.Duration
+	// Base URL for this subscribers callback URLs.
+	baseUrl string
+	// Lease length used for all subscriptions. Default 240 hours.
+	leaseLength time.Duration
 }
 
-func (s Subscriber) BaseUrl() string {
-	return s.baseUrl
-}
-
+// NewSubscriber creates a new subscriber with the specified options.
 func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
 		subscriptions: make(map[string]*SSubscription),
@@ -61,6 +70,7 @@ func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	return s
 }
 
+// ServeHTTP handles all incoming HTTP requests, following websub spec.
 func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	subId := strings.TrimPrefix(r.URL.Path, "/")
 	switch r.Method {
@@ -197,6 +207,11 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Method not allowed"))
 		return
 	}
+}
+
+// Returns the base URL for this subscribers callback URLs.
+func (s Subscriber) BaseUrl() string {
+	return s.baseUrl
 }
 
 type SubscriberOption func(*Subscriber)
