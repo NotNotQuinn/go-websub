@@ -168,9 +168,12 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(200)
 
+		if sub.pendingUnsubscribe {
+			return
+		}
+
 		content, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		contentReader := bytes.NewReader(content)
@@ -198,7 +201,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
 		} else {
-			// no secret or signature
+			// no secret
 			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
 		}
 
@@ -269,11 +272,16 @@ func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallba
 }
 
 // Unsubscribe requests the hub to stop sending updates.
+// Already pending unsubscriptions are ignored.
 //
-// All events received in the meantime will still be fulfulled.
+// All events received in the meantime will not be fulfulled.
 func (s *Subscriber) Unsubscribe(sub *SSubscription) error {
-	sub.pendingUnsubscribe = true
-	return s.sendRequest(sub, "unsubscribe")
+	if !sub.pendingUnsubscribe {
+		sub.pendingUnsubscribe = true
+		return s.sendRequest(sub, "unsubscribe")
+	}
+
+	return nil
 }
 
 func (s *Subscriber) sendRequest(sub *SSubscription, mode string) error {
