@@ -17,14 +17,13 @@ import (
 )
 
 var (
-
 	// a non 2xx status code was returned when getting topic content
 	ErrNon2xxGettingContent = errors.New("a non 2xx status code was returned when getting topic content")
 	// a non 2xx status code was returned when posting content to a subscriber
 	ErrNon2xxPostingContent = errors.New("a non 2xx status code was returned when posting content to a subscriber")
 )
 
-// A Hub is a websub hub, and
+// A Hub is a websub hub.
 type Hub struct {
 	// See websub.HAllowPostBodyAsContent
 	allowPostBodyAsContent bool
@@ -50,17 +49,16 @@ type Hub struct {
 	defaultLease time.Duration
 	// The interval to clear expired subscriptions from the memory.
 	cleanupInterval time.Duration
-	// The HTTP client the hub uses.
-	client *http.Client
 	// maps topic and callback to subscription, in that order.
 	subscriptions map[string]map[string]*HSubscription
 	// Validators that validate each incoming subscription request.
 	validators []*HubSubscriptionValidator
-	// Sniffers allow the hub to "sniff" on publishes.
+	// Sniffers that intercept publishes as if they were subscribed to a topic.
 	sniffers map[string][]*TopicSniffer
 	// All failed publishes are sent through this channel.
 	failedPublishes chan *hPublish
 	// Newly found topics are sent through this channel
+	// Used for publishing topic updates when h.exposeTopics is true.
 	newTopic chan string
 }
 
@@ -111,7 +109,6 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		minLease:        time.Minute * 5,
 		defaultLease:    time.Hour * 24 * 10,
 		cleanupInterval: time.Minute,
-		client:          http.DefaultClient,
 		failedPublishes: make(chan *hPublish),
 		newTopic:        make(chan string),
 		subscriptions:   make(map[string]map[string]*HSubscription),
@@ -170,7 +167,7 @@ func HWithDefaultLease(d time.Duration) HubOption {
 	}
 }
 
-// HExposeTopics enables a /topics endpoint that lists all availibe/active topics.
+// HExposeTopics enables a /topics endpoint that lists all availible/active topics.
 func HExposeTopics(enable bool) HubOption {
 	return func(h *Hub) {
 		h.exposeTopics = enable
@@ -470,8 +467,7 @@ func (h *Hub) sendValidationDenied(sub *HSubscription, reason string) error {
 	}
 
 	req.Header.Set("User-Agent", h.userAgent)
-
-	resp, err := h.client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -506,8 +502,7 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 	}
 
 	req.Header.Set("User-Agent", h.userAgent)
-
-	resp, err := h.client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
 		return false, err
@@ -600,7 +595,8 @@ func (h *Hub) disbatchPublish(pub *hPublish) error {
 		req.Header.Set("X-Hub-Signature", h.newSignature(pub.content, pub.secret))
 	}
 
-	resp, err := h.client.Do(req)
+	req.Header.Set("User-Agent", h.userAgent)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -630,8 +626,7 @@ func (h *Hub) getTopicContent(topic string) (content []byte, contentType string,
 	}
 
 	req.Header.Set("User-Agent", h.userAgent)
-
-	resp, err := h.client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, "", err
 	}
@@ -692,6 +687,9 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 	}
 }
 
+// Returns a JSON array of the topics currently known by the hub.
+//
+// Includes topics with no subscribers, or no publishes.
 func (h *Hub) _getTopics() ([]byte, error) {
 	keys := make([]string, 0, len(h.subscriptions))
 	for k := range h.subscriptions {
@@ -704,6 +702,8 @@ func (h *Hub) _getTopics() ([]byte, error) {
 	}
 	return bytes, nil
 }
+
+// Handles requests to /topics when h.exposeTopics is enabled.
 func (h *Hub) getTopics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
