@@ -20,9 +20,6 @@ type publishedContent struct {
 	content     []byte
 }
 
-// TODO: Publisher should redirect /topic/something/ to /topic/something
-// or treat them equivialantly
-
 type Publisher struct {
 	postBodyAsContent      bool
 	advertiseInvalidTopics bool
@@ -32,6 +29,7 @@ type Publisher struct {
 	publishedContent map[string]*publishedContent
 }
 
+// BaseUrl returns the base URL of this publisher (with any trailing slash trimmed)
 func (p Publisher) BaseUrl() string {
 	return p.baseUrl
 }
@@ -55,7 +53,7 @@ type PublisherOption func(p *Publisher)
 // PWithPostBodyAsContent sends what is normally the body as the query parameters,
 // and sends the content as the body. Also adds hub.content="body" in the query parameters.
 //
-// Important: If the hub does not have this enabled, you will be unable to post.
+// Important: If the hub does not have this enabled, you will be unable to publish.
 func PWithPostBodyAsContent(enabled bool) PublisherOption {
 	return func(p *Publisher) {
 		p.postBodyAsContent = enabled
@@ -69,9 +67,16 @@ func PAdvertiseInvalidTopics(enabled bool) PublisherOption {
 		p.advertiseInvalidTopics = enabled
 	}
 }
+
+// Publish will send a publish request to the hub.
+//
+// If the topic URL starts with this publisher's base URL, the publisher
+// will return the content on HTTP GET requests to that url.
 func (p *Publisher) Publish(topic string, contentType string, content []byte) error {
-	if strings.HasPrefix(topic, p.baseUrl) {
-		p.publishedContent[strings.TrimPrefix(topic, p.baseUrl+"/")] = &publishedContent{
+	if strings.HasPrefix(topic, p.baseUrl+"/") {
+		// "https://example.com/baseUrl/topic/1////" gets stored as "topic/1"
+		// removing a trailing slash
+		p.publishedContent[strings.Trim(strings.TrimPrefix(topic, p.baseUrl+"/"), "/")] = &publishedContent{
 			contentType: contentType,
 			content:     content,
 		}
@@ -80,6 +85,10 @@ func (p *Publisher) Publish(topic string, contentType string, content []byte) er
 	return p.sendPublishRequest(topic, contentType, content)
 }
 
+// sendPublishRequest sends an HTTP POST request to the hub.
+//
+// if p.postBodyAsContent is true, it sends the content as the body,
+// otherwise the content and contentType are ignored.
 func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte) error {
 	values := url.Values{
 		"hub.mode":  []string{"publish"},
@@ -115,7 +124,6 @@ func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte
 	}
 
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		bytes, err := io.ReadAll(resp.Body)
@@ -134,9 +142,14 @@ func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte
 		return ErrNon2xxOnPubReq
 	}
 
+	io.Copy(io.Discard, resp.Body)
 	return nil
 }
 
+// ServeHTTP serves the content that has been published to this publisher,
+// and advertises topic and hub urls in Link headers.
+//
+// Only topics published with a URL that starts with the base URL are advertised.
 func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -144,7 +157,9 @@ func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := strings.TrimPrefix(r.URL.Path, "/")
+	// request to "//////topic/1/////" gets treated as equal to "/topic/1/"
+	// stored as "topic/1"
+	id := strings.Trim(r.URL.Path, "/")
 	pub := p.publishedContent[id]
 
 	if (pub == nil && !p.advertiseInvalidTopics) || id == "" {
