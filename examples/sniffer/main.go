@@ -89,7 +89,7 @@ func main() {
 	}
 
 	// Important: You must publish at least once before subscribing
-	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
+	// unless you use websub.PublisherAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
 
 	// subscribe to a topic

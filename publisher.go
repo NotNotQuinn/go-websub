@@ -51,7 +51,7 @@ func NewPublisher(baseUrl, hubUrl string, options ...PublisherOption) *Publisher
 
 type PublisherOption func(p *Publisher)
 
-// PWithPostBodyAsContent sends what is normally the body as the query parameters,
+// PublisherWithPostBodyAsContent sends what is normally the body as the query parameters,
 // and sends the content as the body. Also adds hub.content="body" in the query parameters.
 //
 // Important: If the hub does not have this enabled, you will be unable to publish.
@@ -61,7 +61,7 @@ func PublisherWithPostBodyAsContent(enabled bool) PublisherOption {
 	}
 }
 
-// PAdvertiseInvalidTopics will advertise all topics with Link headers and
+// PublisherAdvertiseInvalidTopics will advertise all topics with Link headers and
 // return a 200 OK status as if they have already been published to with blank content.
 func PublisherAdvertiseInvalidTopics(enabled bool) PublisherOption {
 	return func(p *Publisher) {

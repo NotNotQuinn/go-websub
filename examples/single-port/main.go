@@ -24,13 +24,13 @@ func main() {
 	p := websub.NewPublisher(
 		baseUrl+"/topic/",
 		baseUrl+"/hub/",
-		// websub.PWithPostBodyAsContent(true),
-		// websub.PAdvertiseInvalidTopics(true),
+		// websub.PublisherWithPostBodyAsContent(true),
+		// websub.PublisherAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
 		baseUrl+"/hub/",
-		// websub.HAllowPostBodyAsContent(true),
+		// websub.HubAllowPostBodyAsContent(true),
 		websub.HubWithHashFunction("sha256"),
 	)
 
@@ -69,7 +69,7 @@ func main() {
 	fmt.Println("Subscribing!")
 
 	// Important: You must publish at least once before subscribing
-	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
+	// unless you use websub.PublisherAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
 
 	// subscribe to a topic

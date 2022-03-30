@@ -27,7 +27,7 @@ var (
 
 // A Hub is a websub hub.
 type Hub struct {
-	// See websub.HAllowPostBodyAsContent
+	// See websub.HubAllowPostBodyAsContent
 	allowPostBodyAsContent bool
 	// expose topics to /topics
 	exposeTopics bool

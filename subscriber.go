@@ -219,14 +219,14 @@ func (s Subscriber) BaseUrl() string {
 
 type SubscriberOption func(*Subscriber)
 
-// SWithBaseUrl sets the baseUrl for a subscriber
+// SubscriberWithBaseUrl sets the baseUrl for a subscriber
 func SubscriberWithBaseUrl(baseUrl string) SubscriberOption {
 	return func(s *Subscriber) {
 		s.baseUrl = strings.TrimRight(baseUrl, "/")
 	}
 }
 
-// SWithLeaseLength sets the LeaseLength for a subscriber
+// SubscriberWithLeaseLength sets the LeaseLength for a subscriber
 //
 // Default lease length is 10 days
 func SubscriberWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
