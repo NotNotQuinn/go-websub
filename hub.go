@@ -404,7 +404,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // reason is sent to the subscriber telling them their subscription request was denied.
 //
 // The expiry date will not be set by the time the validators are called.
-type HSubValidatorFunc = func(sub *HSubscription) (ok bool, reason string)
+type HSubValidatorFunc func(sub *HSubscription) (ok bool, reason string)
 
 // AddValidator adds a validator for subscription requests.
 // Multiple validators can exist on one hub.
@@ -509,7 +509,7 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 }
 
 // A topic sniffer sniffs on topics as if it was a subscriber.
-type HTopicSnifferFunc = func(topic string, contentType string, body io.Reader)
+type HTopicSnifferFunc func(topic string, contentType string, body io.Reader)
 
 // AddSniffer allows one to "sniff" publishes, receiving events
 // as if they were subscribers.
