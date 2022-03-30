@@ -31,8 +31,8 @@ func main() {
 
 	h := websub.NewHub(
 		baseUrl+"/hub/",
-		websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		websub.HubAllowPostBodyAsContent(true),
+		websub.HubWithHashFunction("sha256"),
 	)
 
 	h.AddSniffer("", func(topic, contentType string, body io.Reader) {

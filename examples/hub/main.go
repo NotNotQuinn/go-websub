@@ -20,7 +20,7 @@ func main() {
 	port := 4044
 	h := websub.NewHub("https://public.example.com/",
 		// Sets the hash function used for authenticated content distribution.
-		websub.HWithHashFunction("sha256"),
+		websub.HubWithHashFunction("sha256"),
 		// When this is enabled, the topic h.HubUrl()+"/topics" will
 		// be published whenever there is a subscription or publish
 		// to a new, prevously unknown topic.
@@ -28,7 +28,7 @@ func main() {
 		// And the h.HubUrl()+"/topics" endpoint will be exposed as
 		// a JSON array of all topics currently known to the hub,
 		// with Link headers advertising it as a websub topic.
-		websub.HExposeTopics(true),
+		websub.HubExposeTopics(true),
 	)
 
 	// Add a sniffer to log all publishes that happen on this hub.

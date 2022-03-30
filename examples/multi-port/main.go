@@ -85,8 +85,8 @@ func pub_main() {
 func hub_main() {
 	h := websub.NewHub(
 		"http://localhost:8080/",
-		websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		websub.HubAllowPostBodyAsContent(true),
+		websub.HubWithHashFunction("sha256"),
 	)
 	go http.ListenAndServe("127.0.0.1:8080", h)
 	fmt.Println("[hub] Listening on 127.0.0.1:8080")

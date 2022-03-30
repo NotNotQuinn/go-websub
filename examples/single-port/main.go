@@ -31,7 +31,7 @@ func main() {
 	h := websub.NewHub(
 		baseUrl+"/hub/",
 		// websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		websub.HubWithHashFunction("sha256"),
 	)
 
 	// register handlers
