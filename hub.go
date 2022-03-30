@@ -27,7 +27,7 @@ var (
 
 // A Hub is a websub hub.
 type Hub struct {
-	// See websub.HAllowPostBodyAsContent
+	// See websub.HubAllowPostBodyAsContent
 	allowPostBodyAsContent bool
 	// expose topics to /topics
 	exposeTopics bool
@@ -52,20 +52,20 @@ type Hub struct {
 	// The interval to clear expired subscriptions from the memory.
 	cleanupInterval time.Duration
 	// maps topic and callback to subscription, in that order.
-	subscriptions map[string]map[string]*HSubscription
+	subscriptions map[string]map[string]*HubSubscription
 	// Validators that validate each incoming subscription request.
-	validators []*HSubValidatorFunc
+	validators []*HubSubValidatorFunc
 	// Sniffers that intercept publishes as if they were subscribed to a topic.
-	sniffers map[string][]*HTopicSnifferFunc
+	sniffers map[string][]*HubTopicSnifferFunc
 	// All failed publishes are sent through this channel.
-	failedPublishes chan *hPublish
+	failedPublishes chan *hubPublish
 	// Newly found topics are sent through this channel
 	// Used for publishing topic updates when h.exposeTopics is true.
 	newTopic chan string
 }
 
 // represents a single POST request to make to a subscriber
-type hPublish struct {
+type hubPublish struct {
 	// The HTTP callback to the subscriber
 	callback string
 	// The topic URL that was updated
@@ -80,8 +80,8 @@ type hPublish struct {
 	failedCount int
 }
 
-// an HSubscription is a subscription used in the context of a Hub.
-type HSubscription struct {
+// an HubSubscription is a subscription used in the context of a Hub.
+type HubSubscription struct {
 	// The HTTP callback to the subscriber.
 	Callback string
 	// The topic URL the subscriber is subscribing to.
@@ -111,10 +111,10 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		minLease:        time.Minute * 5,
 		defaultLease:    time.Hour * 24 * 10,
 		cleanupInterval: time.Minute,
-		failedPublishes: make(chan *hPublish),
+		failedPublishes: make(chan *hubPublish),
 		newTopic:        make(chan string),
-		subscriptions:   make(map[string]map[string]*HSubscription),
-		sniffers:        make(map[string][]*HTopicSnifferFunc),
+		subscriptions:   make(map[string]map[string]*HubSubscription),
+		sniffers:        make(map[string][]*HubTopicSnifferFunc),
 	}
 
 	for _, opt := range options {
@@ -135,14 +135,14 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 // A HubOption specifies an option for a hub.
 type HubOption func(*Hub)
 
-// HWithCleanupInterval sets the interval expired subscriptions are removed from the memory
-func HWithCleanupInterval(interval time.Duration) HubOption {
+// HubWithCleanupInterval sets the interval expired subscriptions are removed from the memory
+func HubWithCleanupInterval(interval time.Duration) HubOption {
 	return func(h *Hub) {
 		h.cleanupInterval = interval
 	}
 }
 
-// HWithLeaseSettings sets the minimum, maximum, and default lease for a subscription on a hub
+// HubWithLeaseSettings sets the minimum, maximum, and default lease for a subscription on a hub
 //
 // When a requested lease is outside of the allowed range, the lease becomes pinned
 // to the minimum or maximum value. If a subscriber doesn't provide a lease length,
@@ -153,7 +153,7 @@ func HWithCleanupInterval(interval time.Duration) HubOption {
 // - Default maximum lease is 720 hours (30 days)
 //
 // - Default default lease is 240 hours (10 days)
-func HWithLeaseSettings(minLease, maxLease, defaultLease time.Duration) HubOption {
+func HubWithLeaseSettings(minLease, maxLease, defaultLease time.Duration) HubOption {
 	return func(h *Hub) {
 		h.minLease = minLease
 		h.maxLease = maxLease
@@ -161,51 +161,51 @@ func HWithLeaseSettings(minLease, maxLease, defaultLease time.Duration) HubOptio
 	}
 }
 
-// HExposeTopics enables a /topics endpoint that lists all available/active topics.
-func HExposeTopics(enable bool) HubOption {
+// HubExposeTopics enables a /topics endpoint that lists all available/active topics.
+func HubExposeTopics(enable bool) HubOption {
 	return func(h *Hub) {
 		h.exposeTopics = enable
 	}
 }
 
-// HAllowPostBodyAsContent allows publishers to post content as the body
+// HubAllowPostBodyAsContent allows publishers to post content as the body
 // of the POST request if they provide hub.content = "body" and hub.mode = "publish".
 // In this case, the Content-Type of the post request is used when distributing publish events.
 //
 // NOTE: Because of the lack of authentication for publishers, this allows
 // any machine with internet access to the hub to publish any content
 // under any topic. Use with caution.
-func HAllowPostBodyAsContent(enable bool) HubOption {
+func HubAllowPostBodyAsContent(enable bool) HubOption {
 	return func(h *Hub) {
 		h.allowPostBodyAsContent = enable
 	}
 }
 
-// HWithUserAgent sets the user-agent for a hub
+// HubWithUserAgent sets the user-agent for a hub
 //
 // Default user agent is "go-websub-hub"
-func HWithUserAgent(userAgent string) HubOption {
+func HubWithUserAgent(userAgent string) HubOption {
 	return func(h *Hub) {
 		h.userAgent = userAgent
 	}
 }
 
-// HWithHashFunction sets the hash function used to compute hub signatures
+// HubWithHashFunction sets the hash function used to compute hub signatures
 // for subscriptions with a secret.
 //
 // One of "sha1", "sha256", "sha384", "sha512"
 //
 // Default is "sha1" for compatability, however it is insecure.
-func HWithHashFunction(hashFunction string) HubOption {
+func HubWithHashFunction(hashFunction string) HubOption {
 	return func(h *Hub) {
 		h.hashFunction = hashFunction
 	}
 }
 
-// HWithRetryLimits sets the retry limits for a hub.
+// HubWithRetryLimits sets the retry limits for a hub.
 //
 // Defaults to 5 retries, and a one minute interval.
-func HWithRetryLimits(retryLimit int, retryInterval time.Duration) HubOption {
+func HubWithRetryLimits(retryLimit int, retryInterval time.Duration) HubOption {
 	return func(h *Hub) {
 		h.retryLimit = retryLimit
 		h.retryInterval = retryInterval
@@ -312,7 +312,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			leaseLength = int(h.minLease.Seconds())
 		}
 
-		var sub *HSubscription
+		var sub *HubSubscription
 		update := false
 
 		if h.subscriptions[q.Get("hub.topic")] != nil {
@@ -326,7 +326,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if sub == nil {
-			sub = &HSubscription{
+			sub = &HubSubscription{
 				Callback:    q.Get("hub.callback"),
 				Topic:       q.Get("hub.topic"),
 				Secret:      q.Get("hub.secret"),
@@ -383,7 +383,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					} else {
 						if h.subscriptions[sub.Topic] == nil {
 							h.newTopic <- sub.Topic
-							h.subscriptions[sub.Topic] = make(map[string]*HSubscription)
+							h.subscriptions[sub.Topic] = make(map[string]*HubSubscription)
 						}
 						h.subscriptions[sub.Topic][sub.Callback] = sub
 					}
@@ -398,26 +398,26 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HSubValidatorFunc validates subscription requests.
+// HubSubValidatorFunc validates subscription requests.
 //
 // The validation stops as soon as one validator returns ok=false. The provided
 // reason is sent to the subscriber telling them their subscription request was denied.
 //
 // The expiry date will not be set by the time the validators are called.
-type HSubValidatorFunc func(sub *HSubscription) (ok bool, reason string)
+type HubSubValidatorFunc func(sub *HubSubscription) (ok bool, reason string)
 
 // AddValidator adds a validator for subscription requests.
 // Multiple validators can exist on one hub.
 //
 // All subscriptions are accepted by default.
-func (h *Hub) AddValidator(validator HSubValidatorFunc) {
+func (h *Hub) AddValidator(validator HubSubValidatorFunc) {
 	h.validators = append(h.validators, &validator)
 }
 
 // checks all validators associated with the hub for the subscription.
 //
 // The validation stops as soon as one validator returns ok=false.
-func (h *Hub) validateSubscription(sub *HSubscription) (ok bool, reason string) {
+func (h *Hub) validateSubscription(sub *HubSubscription) (ok bool, reason string) {
 	for _, validator := range h.validators {
 		ok, reason := (*validator)(sub)
 		if !ok {
@@ -429,7 +429,7 @@ func (h *Hub) validateSubscription(sub *HSubscription) (ok bool, reason string) 
 }
 
 // sends a GET request to the subscription callback, telling the subscriber they were denied.
-func (h *Hub) sendValidationDenied(sub *HSubscription, reason string) error {
+func (h *Hub) sendValidationDenied(sub *HubSubscription, reason string) error {
 	callback, err := url.Parse(sub.Callback)
 	if err != nil {
 		return err
@@ -461,7 +461,7 @@ func (h *Hub) sendValidationDenied(sub *HSubscription, reason string) error {
 
 // Sends a GET request to the subscription callback, verifying if the subscriber wants to
 // subscribe or unsubscribe from a subscription.
-func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error) {
+func (h *Hub) verifyIntent(sub *HubSubscription, mode string) (ok bool, err error) {
 	callback, err := url.Parse(sub.Callback)
 	if err != nil {
 		return false, err
@@ -509,13 +509,13 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 }
 
 // A topic sniffer sniffs on topics as if it was a subscriber.
-type HTopicSnifferFunc func(topic string, contentType string, body io.Reader)
+type HubTopicSnifferFunc func(topic string, contentType string, body io.Reader)
 
 // AddSniffer allows one to "sniff" publishes, receiving events
 // as if they were subscribers.
 //
 // If an emptry string is provided as the topic, all publishes are sniffed.
-func (h *Hub) AddSniffer(topic string, sniffer HTopicSnifferFunc) {
+func (h *Hub) AddSniffer(topic string, sniffer HubTopicSnifferFunc) {
 	h.sniffers[topic] = append(h.sniffers[topic], &sniffer)
 }
 
@@ -523,7 +523,7 @@ func (h *Hub) AddSniffer(topic string, sniffer HTopicSnifferFunc) {
 func (h *Hub) Publish(topic, contentType string, content []byte) {
 	if h.subscriptions[topic] == nil {
 		h.newTopic <- topic
-		h.subscriptions[topic] = make(map[string]*HSubscription)
+		h.subscriptions[topic] = make(map[string]*HubSubscription)
 	}
 
 	// call all sniffers for this topic, even if no subscriptions exist.
@@ -540,8 +540,8 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 	for _, sub := range h.subscriptions[topic] {
 		if sub.Expires.After(time.Now()) {
 
-			go func(sub *HSubscription) {
-				pub := &hPublish{
+			go func(sub *HubSubscription) {
+				pub := &hubPublish{
 					callback:    sub.Callback,
 					topic:       topic,
 					secret:      sub.Secret,
@@ -565,7 +565,7 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 }
 
 // disbatchPublish sends a publish request (POST) for the publish object.
-func (h *Hub) disbatchPublish(pub *hPublish) error {
+func (h *Hub) disbatchPublish(pub *hubPublish) error {
 	req, err := http.NewRequest("POST", pub.callback, bytes.NewReader(pub.content))
 	if err != nil {
 		return err
@@ -642,7 +642,7 @@ func (h *Hub) getTopicContent(topic string) (content []byte, contentType string,
 func (h *Hub) handleFailedPublishes() {
 	for {
 		pub := <-h.failedPublishes
-		go func(pub *hPublish) {
+		go func(pub *hubPublish) {
 			<-time.After(h.retryInterval)
 
 			err := h.disbatchPublish(pub)

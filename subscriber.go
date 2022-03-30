@@ -24,8 +24,8 @@ var (
 	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription or unsubscription request")
 )
 
-// an SSubscription is a subscription in the context of a Subscriber.
-type SSubscription struct {
+// a SubscriberSubscription is a subscription in the context of a Subscriber.
+type SubscriberSubscription struct {
 	// Topic URL for this subscription.
 	// Not always equal to the passed topic url.
 	Topic string
@@ -48,7 +48,7 @@ type SSubscription struct {
 
 type Subscriber struct {
 	// Maps subscription id to subscription
-	subscriptions map[string]*SSubscription
+	subscriptions map[string]*SubscriberSubscription
 	// Base URL for this subscribers callback URLs.
 	baseUrl string
 	// Lease length used for all subscriptions. Default 240 hours.
@@ -58,7 +58,7 @@ type Subscriber struct {
 // NewSubscriber creates a new subscriber with the specified options.
 func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
-		subscriptions: make(map[string]*SSubscription),
+		subscriptions: make(map[string]*SubscriberSubscription),
 		baseUrl:       strings.TrimRight(baseUrl, "/"),
 		leaseLength:   time.Hour * 24 * 10,
 	}
@@ -219,38 +219,38 @@ func (s Subscriber) BaseUrl() string {
 
 type SubscriberOption func(*Subscriber)
 
-// SWithBaseUrl sets the baseUrl for a subscriber
-func SWithBaseUrl(baseUrl string) SubscriberOption {
+// SubscriberWithBaseUrl sets the baseUrl for a subscriber
+func SubscriberWithBaseUrl(baseUrl string) SubscriberOption {
 	return func(s *Subscriber) {
 		s.baseUrl = strings.TrimRight(baseUrl, "/")
 	}
 }
 
-// SWithLeaseLength sets the LeaseLength for a subscriber
+// SubscriberWithLeaseLength sets the LeaseLength for a subscriber
 //
 // Default lease length is 10 days
-func SWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
+func SubscriberWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
 	return func(s *Subscriber) {
 		s.leaseLength = LeaseLength
 	}
 }
 
 // a SubscribeCallback is called when a subscriber receives a publish to the related topic.
-type SubscribeCallback func(sub *SSubscription, contentType string, body io.Reader)
+type SubscribeCallback func(sub *SubscriberSubscription, contentType string, body io.Reader)
 
 // subscribes to updates to the topicUrl, verifying using the secret
 //
 // If the secret is an empty string, it is omitted.
 //
 // When updates happen, the callback is called.
-func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SSubscription, error) {
+func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SubscriberSubscription, error) {
 	self, hub, err := s.discover(topicUrl)
 
 	if err != nil {
 		return nil, err
 	}
 
-	sub := &SSubscription{
+	sub := &SubscriberSubscription{
 		Topic:            self,
 		Hub:              hub,
 		Expires:          time.Now().Add(s.leaseLength),
@@ -275,7 +275,7 @@ func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallba
 // Already pending unsubscriptions are ignored.
 //
 // All events received in the meantime will not be fulfilled.
-func (s *Subscriber) Unsubscribe(sub *SSubscription) error {
+func (s *Subscriber) Unsubscribe(sub *SubscriberSubscription) error {
 	if !sub.pendingUnsubscribe {
 		sub.pendingUnsubscribe = true
 		return s.sendRequest(sub, "unsubscribe")
@@ -284,7 +284,7 @@ func (s *Subscriber) Unsubscribe(sub *SSubscription) error {
 	return nil
 }
 
-func (s *Subscriber) sendRequest(sub *SSubscription, mode string) error {
+func (s *Subscriber) sendRequest(sub *SubscriberSubscription, mode string) error {
 	vals := url.Values{
 		"hub.mode":          []string{mode},
 		"hub.topic":         []string{sub.Topic},
