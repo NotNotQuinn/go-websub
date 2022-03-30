@@ -35,12 +35,8 @@ func main() {
 		websub.HWithHashFunction("sha256"),
 	)
 
-	h.AddSniffer("", func(topic, contentType string, body io.Reader) {
-		bytes, err := io.ReadAll(body)
-		if err != nil {
-			log.Err(err).Msg("error reading body in sniffer")
-		}
-		fmt.Printf("[sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, string(bytes))
+	h.AddSniffer("", func(topic, contentType string, content []byte) {
+		fmt.Printf("[sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, content)
 	})
 
 	// register handlers
