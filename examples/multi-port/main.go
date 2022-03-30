@@ -19,7 +19,7 @@ var log = websub.Logger()
 func sub_main() {
 	s := websub.NewSubscriber(
 		"http://localhost:3033/",
-		websub.SWithLeaseLength(time.Hour),
+		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	go http.ListenAndServe("127.0.0.1:3033", s)

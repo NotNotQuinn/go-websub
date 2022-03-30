@@ -18,7 +18,7 @@ func main() {
 
 	s := websub.NewSubscriber(
 		baseUrl+"/sub/",
-		websub.SWithLeaseLength(time.Hour),
+		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	p := websub.NewPublisher(
