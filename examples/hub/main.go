@@ -23,7 +23,7 @@ func main() {
 		websub.HWithHashFunction("sha256"),
 		// When this is enabled, the topic h.HubUrl()+"/topics" will
 		// be published whenever there is a subscription or publish
-		// to a new, prevously unknown topic.
+		// to a new, previously unknown topic.
 		//
 		// And the h.HubUrl()+"/topics" endpoint will be exposed as
 		// a JSON array of all topics currently known to the hub,

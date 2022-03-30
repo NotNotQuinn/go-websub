@@ -40,7 +40,7 @@ func calculateHash(hashFunction_, secret string, content []byte) (hashResult str
 	default:
 		log.Warn().
 			Str("hashFunction", hashFunction_).
-			Msg("hash function not recognised, using sha1")
+			Msg("hash function not recognized, using sha1")
 		hashFunction = "sha1"
 		hasher = sha1.New
 	}

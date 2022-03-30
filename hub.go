@@ -80,7 +80,7 @@ type hPublish struct {
 	failedCount int
 }
 
-// an HSubnscription is a subscription used in the context of a Hub.
+// an HSubscription is a subscription used in the context of a Hub.
 type HSubscription struct {
 	// The HTTP callback to the subscriber.
 	Callback string
@@ -161,7 +161,7 @@ func HWithLeaseSettings(minLease, maxLease, defaultLease time.Duration) HubOptio
 	}
 }
 
-// HExposeTopics enables a /topics endpoint that lists all availible/active topics.
+// HExposeTopics enables a /topics endpoint that lists all available/active topics.
 func HExposeTopics(enable bool) HubOption {
 	return func(h *Hub) {
 		h.exposeTopics = enable
@@ -228,7 +228,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "cound not read request body", http.StatusInternalServerError)
+		http.Error(w, "couldnt not read request body", http.StatusInternalServerError)
 		return
 	}
 	r.Body.Close()
@@ -414,7 +414,7 @@ func (h *Hub) AddValidator(validator HSubValidatorFunc) {
 	h.validators = append(h.validators, &validator)
 }
 
-// checks all validators asociated with the hub for the subscription.
+// checks all validators associated with the hub for the subscription.
 //
 // The validation stops as soon as one validator returns ok=false.
 func (h *Hub) validateSubscription(sub *HSubscription) (ok bool, reason string) {

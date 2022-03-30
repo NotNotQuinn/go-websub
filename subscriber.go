@@ -34,7 +34,7 @@ type SSubscription struct {
 	// Secret string used for verifying the hub is the
 	// sender of the subscription.
 	Secret string
-	// The date/time this subcription expires.
+	// The date/time this subscription expires.
 	Expires time.Time
 	// Internal ID for this subscription. Part of the callback URL.
 	Id string
@@ -139,7 +139,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case "unsubscribe":
-			// the hub accepted an usubscribe request
+			// the hub accepted an unsubscribed request
 			if !sub.pendingUnsubscribe {
 				w.WriteHeader(404)
 				w.Write([]byte("not pending unsubscription"))
@@ -240,7 +240,7 @@ type SubscribeCallback func(sub *SSubscription, contentType string, body io.Read
 
 // subscribes to updates to the topicUrl, verifying using the secret
 //
-// If the secret is an empty string, it is omited.
+// If the secret is an empty string, it is omitted.
 //
 // When updates happen, the callback is called.
 func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SSubscription, error) {
@@ -274,7 +274,7 @@ func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallba
 // Unsubscribe requests the hub to stop sending updates.
 // Already pending unsubscriptions are ignored.
 //
-// All events received in the meantime will not be fulfulled.
+// All events received in the meantime will not be fulfilled.
 func (s *Subscriber) Unsubscribe(sub *SSubscription) error {
 	if !sub.pendingUnsubscribe {
 		sub.pendingUnsubscribe = true
