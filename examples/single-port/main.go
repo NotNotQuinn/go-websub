@@ -18,20 +18,20 @@ func main() {
 
 	s := websub.NewSubscriber(
 		baseUrl+"/sub/",
-		websub.SWithLeaseLength(time.Hour),
+		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	p := websub.NewPublisher(
 		baseUrl+"/topic/",
 		baseUrl+"/hub/",
-		// websub.PWithPostBodyAsContent(true),
-		// websub.PAdvertiseInvalidTopics(true),
+		// websub.PublisherWithPostBodyAsContent(true),
+		// websub.PublisherAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
 		baseUrl+"/hub/",
-		// websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		// websub.HubAllowPostBodyAsContent(true),
+		websub.HubWithHashFunction("sha256"),
 	)
 
 	// register handlers
@@ -69,14 +69,14 @@ func main() {
 	fmt.Println("Subscribing!")
 
 	// Important: You must publish at least once before subscribing
-	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
+	// unless you use websub.PublisherAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
 
 	// subscribe to a topic
 	_, err := s.Subscribe(
 		baseUrl+"/topic/count",
 		"random secret string",
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			fmt.Printf("Topic %s updated. %v\n", sub.Topic, time.Now().Unix())
 			fmt.Printf("contentType: %v\n", contentType)
 			bytes, err := io.ReadAll(body)

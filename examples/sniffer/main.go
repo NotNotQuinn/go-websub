@@ -19,20 +19,20 @@ func main() {
 
 	s := websub.NewSubscriber(
 		baseUrl+"/sub/",
-		websub.SWithLeaseLength(time.Hour),
+		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	p := websub.NewPublisher(
 		baseUrl+"/topic/",
 		baseUrl+"/hub/",
-		websub.PWithPostBodyAsContent(true),
-		websub.PAdvertiseInvalidTopics(true),
+		websub.PublisherWithPostBodyAsContent(true),
+		websub.PublisherAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
 		baseUrl+"/hub/",
-		websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		websub.HubAllowPostBodyAsContent(true),
+		websub.HubWithHashFunction("sha256"),
 	)
 
 	h.AddSniffer("", func(topic, contentType string, body io.Reader) {
@@ -77,7 +77,7 @@ func main() {
 
 	fmt.Println("Subscribing!")
 
-	printSubscription := func(sub *websub.SSubscription, contentType string, body io.Reader) {
+	printSubscription := func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 		fmt.Printf("[subscription] new publish:\n")
 		fmt.Printf("      topic: %v\n", sub.Topic)
 		fmt.Printf("      content-type: %v\n", contentType)
@@ -89,7 +89,7 @@ func main() {
 	}
 
 	// Important: You must publish at least once before subscribing
-	// unless you use websub.PAdvertiseInvalidTopics(true) on the publisher
+	// unless you use websub.PublisherAdvertiseInvalidTopics(true) on the publisher
 	// otherwise you will be unable to subscribe. (because the topic doesnt exist)
 
 	// subscribe to a topic

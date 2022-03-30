@@ -52,13 +52,13 @@ func main() {
 	// with the proper Link headers advertising the hub and self URLs.
 
 	// If you need the topic to be advertised with hub and self URLs before it is published to,
-	// use the websub.PAdvertiseInvalidTopics(true) option when creating the publisher.
+	// use the websub.PublisherAdvertiseInvalidTopics(true) option when creating the publisher.
 
 	// When a second publish is made the content is replaced,
 	// and the hub will GET the content before sending it to
 	// subscribers via POST request.
 
-	// When a publish is made with a publisher that uses websub.PWithPostBodyAsContent(true)
+	// When a publish is made with a publisher that uses websub.PublisherWithPostBodyAsContent(true)
 	//  3 things change:
 	//    - The hub must support posting content as the POST body.
 	//      Only this implementation does, at the time of writing,
