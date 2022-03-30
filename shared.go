@@ -22,7 +22,7 @@ func Logger() zerolog.Logger {
 
 // calculates the hash using one of "sha1", "sha256", "sha384", or "sha512".
 //
-// If an unrecognized hash funciton is passed, "sha1" is used for compatability,
+// If an unrecognized hash function is passed, "sha1" is used for compatability,
 // and a warning is printed to the console.
 func calculateHash(hashFunction_, secret string, content []byte) (hashResult string, hashFunction string) {
 	var hasher func() hash.Hash
