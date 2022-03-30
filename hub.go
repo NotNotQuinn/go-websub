@@ -140,30 +140,22 @@ func HWithCleanupInterval(interval time.Duration) HubOption {
 	}
 }
 
-// HWithMaxLease sets the max lease for a subscription on a hub
+// HWithLeaseSettings sets the minimum, maximum, and default lease for a subscription on a hub
 //
-// Default max lease is 720 hours (30 days)
-func HWithMaxLease(d time.Duration) HubOption {
-	return func(h *Hub) {
-		h.maxLease = d
-	}
-}
-
-// HWithMinLease sets the minimum lease for a subscription on a hub
+// When a requested lease is outside of the allowed range, the lease becomes pinned
+// to the minimum or maximum value. If a subscriber doesn't provide a lease length,
+// the default lease length is used.
 //
-// Default min lease is 5 minutes
-func HWithMinLease(d time.Duration) HubOption {
-	return func(h *Hub) {
-		h.minLease = d
-	}
-}
-
-// HWithDefaultLease sets the minimum lease for a subscription on a hub
+// - Default minimum lease is 5 minutes
 //
-// Default default lease is 240 hours (10 days)
-func HWithDefaultLease(d time.Duration) HubOption {
+// - Default maximum lease is 720 hours (30 days)
+//
+// - Default default lease is 240 hours (10 days)
+func HWithLeaseSettings(minLease, maxLease, defaultLease time.Duration) HubOption {
 	return func(h *Hub) {
-		h.defaultLease = d
+		h.minLease = minLease
+		h.maxLease = maxLease
+		h.defaultLease = defaultLease
 	}
 }
 
