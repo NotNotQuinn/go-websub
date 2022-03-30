@@ -12,6 +12,7 @@ import (
 )
 
 var (
+	// hub returned a non 2xx status code on publish request
 	ErrNon2xxOnPubReq = errors.New("hub returned a non 2xx status code on publish request")
 )
 
