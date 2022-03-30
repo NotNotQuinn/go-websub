@@ -55,7 +55,7 @@ func pub_main() {
 	p := websub.NewPublisher(
 		"http://localhost:7070/",
 		"http://localhost:8080/",
-		websub.PWithPostBodyAsContent(true),
+		websub.PublisherWithPostBodyAsContent(true),
 	)
 
 	go http.ListenAndServe("127.0.0.1:7070", p)

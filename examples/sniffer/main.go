@@ -25,8 +25,8 @@ func main() {
 	p := websub.NewPublisher(
 		baseUrl+"/topic/",
 		baseUrl+"/hub/",
-		websub.PWithPostBodyAsContent(true),
-		websub.PAdvertiseInvalidTopics(true),
+		websub.PublisherWithPostBodyAsContent(true),
+		websub.PublisherAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
