@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tomnomnom/linkheader"
+	"golang.org/x/net/html"
 )
 
 // TODO: refresh expiring subscriptions
@@ -244,7 +245,7 @@ type SubscribeCallback func(sub *SSubscription, contentType string, body io.Read
 //
 // When updates happen, the callback is called.
 func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SSubscription, error) {
-	self, hub, err := s.discover(topicUrl)
+	self, hub, err := s.discoverHTTPHeader(topicUrl)
 
 	if err != nil {
 		return nil, err
@@ -333,7 +334,7 @@ func (s *Subscriber) sendRequest(sub *SSubscription, mode string) error {
 // discover makes a GET request to the URL and checks link headers for "self", and "hub".
 //
 // Returns ErrTopicNotDiscoverable if either link is missing.
-func (Subscriber) discover(topic string) (self string, hub string, err error) {
+func (Subscriber) discoverHTTPHeader(topic string) (self string, hub string, err error) {
 	resp, err := http.Get(topic)
 	if err != nil {
 		log.Error().
@@ -363,4 +364,50 @@ func (Subscriber) discover(topic string) (self string, hub string, err error) {
 	}
 
 	return "", "", ErrTopicNotDiscoverable
+}
+
+func (Subscriber) discoverHTMLTag(topic string) (self string, hub string, err error) {
+	resp, err := http.Get(topic)
+	if err != nil {
+		log.Error().
+			Err(err).
+			Str("topic-url", topic).
+			Msg("could not GET topic url")
+		return
+	}
+
+	defer resp.Body.Close()
+
+	tokenizer := html.NewTokenizer(resp.Body)
+
+	inHead := false
+	for {
+		tokenType := tokenizer.Next()
+
+		switch {
+		case tokenType == html.ErrorToken:
+			return "", "", ErrTopicNotDiscoverable
+
+		case tokenType == html.StartTagToken:
+			token := tokenizer.Token()
+			if token.Data == "head" {
+				inHead = true
+			}
+
+			if token.Data == "link" && inHead {
+				if token.Attr[0].Key == "rel" && token.Attr[0].Val == "hub" {
+					hub = token.Attr[1].Val
+				}
+				if token.Attr[0].Key == "rel" && token.Attr[0].Val == "self" {
+					self = token.Attr[1].Val
+				}
+			}
+
+		case tokenType == html.EndTagToken:
+			token := tokenizer.Token()
+			if token.Data == "head" {
+				return self, hub, nil
+			}
+		}
+	}
 }

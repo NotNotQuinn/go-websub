@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/rs/zerolog v1.26.1
 	github.com/tomnomnom/linkheader v0.0.0-20180905144013-02ca5825eb80
+	golang.org/x/net v0.0.0-20210805182204-aaa1db679c0d
 )
 
 require (
