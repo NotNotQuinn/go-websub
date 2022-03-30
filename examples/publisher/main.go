@@ -21,7 +21,7 @@ func main() {
 	// Start a hub
 	startHub(hubPort)
 
-	s := websub.NewPublisher(
+	p := websub.NewPublisher(
 		// Base URL for publisher
 		fmt.Sprintf("http://localhost:%d/", publisherPort),
 		// Hub URL
@@ -30,13 +30,13 @@ func main() {
 
 	// The publisher must be exposed & listening to expose the topic URLs
 	// so the hub can make a GET request to retrieve the content to distribute.
-	go http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", publisherPort), s)
+	go http.ListenAndServe(fmt.Sprintf("127.0.0.1:%d", publisherPort), p)
 	fmt.Printf("[publisher] Listening on 127.0.0.1:%d\n", publisherPort)
 
 	fmt.Println("[publisher] Publishing!")
-	err := s.Publish(
+	err := p.Publish(
 		// Topic URL ("http://localhost:3033/helloWebSub")
-		s.BaseUrl()+"/helloWebSub",
+		p.BaseUrl()+"/helloWebSub",
 		// Content Type
 		"text/plain",
 		// Content
@@ -82,9 +82,9 @@ func main() {
 	time.Sleep(10 * time.Second)
 
 	fmt.Println("[publisher] Publishing again!")
-	err = s.Publish(
+	err = p.Publish(
 		// Topic URL ("http://localhost:3033/helloWebSub")
-		s.BaseUrl()+"/helloWebSub",
+		p.BaseUrl()+"/helloWebSub",
 		// Content Type
 		"text/plain",
 		// Content
