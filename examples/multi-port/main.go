@@ -32,7 +32,7 @@ func sub_main() {
 		"http://localhost:7070/count",
 		"random secret string used for verifying the hub actually "+
 			"sent you the content and not some random script kiddie",
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			fmt.Printf("Topic %s updated. %v\n", sub.Topic, time.Now().Unix())
 			fmt.Printf("contentType: %v\n", contentType)
 			bytes, err := io.ReadAll(body)

@@ -62,7 +62,7 @@ Interact with the subscriber via a Go API:
 		// Callback function is called when the subscriber receives a valid
 		// request from the hub, not on invalid ones
 		// (for example ones with a missing or invalid hub signature)
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			fmt.Println("Received content!")
 			// do something...
 		},

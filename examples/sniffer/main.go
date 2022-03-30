@@ -77,7 +77,7 @@ func main() {
 
 	fmt.Println("Subscribing!")
 
-	printSubscription := func(sub *websub.SSubscription, contentType string, body io.Reader) {
+	printSubscription := func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 		fmt.Printf("[subscription] new publish:\n")
 		fmt.Printf("      topic: %v\n", sub.Topic)
 		fmt.Printf("      content-type: %v\n", contentType)
