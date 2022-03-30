@@ -95,7 +95,7 @@ func hub_main() {
 func main() {
 	/*
 		Each of these *_main functions could be a stand-alone process
-		or entirely sperated on a seperate server.
+		or entirely separated on a separate server.
 
 		So long as they have the correct URLs in relation to eachother.
 	*/
