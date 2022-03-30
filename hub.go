@@ -509,7 +509,7 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 }
 
 // A topic sniffer sniffs on topics as if it was a subscriber.
-type HTopicSnifferFunc = func(topic string, contentType string, content []byte)
+type HTopicSnifferFunc = func(topic string, contentType string, body io.Reader)
 
 // AddSniffer allows one to "sniff" publishes, receiving events
 // as if they were subscribers.
@@ -531,7 +531,7 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 		for sniffedTopic, sniffers := range h.sniffers {
 			if sniffedTopic == "" || sniffedTopic == topic {
 				for _, sniffer := range sniffers {
-					(*sniffer)(topic, contentType, content)
+					(*sniffer)(topic, contentType, bytes.NewReader(content))
 				}
 			}
 		}
