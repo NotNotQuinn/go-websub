@@ -18,9 +18,11 @@ import (
 
 var (
 	// a non 2xx status code was returned when getting topic content
-	ErrNon2xxGettingContent = errors.New("a non 2xx status code was returned when getting topic content")
+	ErrNon2xxGettingContent = errors.New(
+		"a non 2xx status code was returned when getting topic content")
 	// a non 2xx status code was returned when posting content to a subscriber
-	ErrNon2xxPostingContent = errors.New("a non 2xx status code was returned when posting content to a subscriber")
+	ErrNon2xxPostingContent = errors.New(
+		"a non 2xx status code was returned when posting content to a subscriber")
 )
 
 // A Hub is a websub hub.
@@ -52,9 +54,9 @@ type Hub struct {
 	// maps topic and callback to subscription, in that order.
 	subscriptions map[string]map[string]*HSubscription
 	// Validators that validate each incoming subscription request.
-	validators []*HubSubscriptionValidator
+	validators []*HSubValidatorFunc
 	// Sniffers that intercept publishes as if they were subscribed to a topic.
-	sniffers map[string][]*TopicSniffer
+	sniffers map[string][]*HTopicSnifferFunc
 	// All failed publishes are sent through this channel.
 	failedPublishes chan *hPublish
 	// Newly found topics are sent through this channel
@@ -112,7 +114,7 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		failedPublishes: make(chan *hPublish),
 		newTopic:        make(chan string),
 		subscriptions:   make(map[string]map[string]*HSubscription),
-		sniffers:        make(map[string][]*TopicSniffer),
+		sniffers:        make(map[string][]*HTopicSnifferFunc),
 	}
 
 	for _, opt := range options {
@@ -200,36 +202,6 @@ func HWithHashFunction(hashFunction string) HubOption {
 	}
 }
 
-type TopicSniffer func(topic string, contentType string, body io.Reader)
-
-// HWithSniffer allows one to "sniff" publishes, receiving events as if they were subscribers.
-// Many sniffers can exist on one hub.
-//
-// If an emptry string is provided as the topic, ALL publishes are sniffed.
-func HWithSniffer(topic string, sniffer TopicSniffer) HubOption {
-	return func(h *Hub) {
-		h.sniffers[topic] = append(h.sniffers[topic], &sniffer)
-	}
-}
-
-// HubSubscriptionValidator validates subscription requests.
-//
-// The validation stops as soon as one validator returns ok=false. The provided
-// reason is sent to the subscriber telling them their subscription request was denied.
-//
-// The expiry date will not be set by the time the validators are called.
-type HubSubscriptionValidator func(sub *HSubscription) (ok bool, reason string)
-
-// HWithSubscriptionValidator adds a validator for subscription requests.
-// Multiple validators can exist on one hub.
-//
-// All subscriptions are accepted by default.
-func HWithSubscriptionValidator(validator HubSubscriptionValidator) HubOption {
-	return func(h *Hub) {
-		h.validators = append(h.validators, &validator)
-	}
-}
-
 // HWithRetryLimits sets the retry limits for a hub.
 //
 // Defaults to 5 retries, and a one minute interval.
@@ -244,7 +216,7 @@ func HWithRetryLimits(retryLimit int, retryInterval time.Duration) HubOption {
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Path == "/topics" && h.exposeTopics {
-		h.getTopics(w, r)
+		h.getTopicsHTTP(w, r)
 		return
 	}
 
@@ -265,7 +237,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var q url.Values = r.URL.Query()
 	if !h.allowPostBodyAsContent || q.Get("hub.content") != "body" {
 		if r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
-			http.Error(w, "invalid Content-Type; should be \"application/x-www-form-urlencoded\"", 400)
+			http.Error(w,
+				"invalid Content-Type; should be \"application/x-www-form-urlencoded\"", 400)
 			return
 		}
 
@@ -425,6 +398,22 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HSubValidatorFunc validates subscription requests.
+//
+// The validation stops as soon as one validator returns ok=false. The provided
+// reason is sent to the subscriber telling them their subscription request was denied.
+//
+// The expiry date will not be set by the time the validators are called.
+type HSubValidatorFunc = func(sub *HSubscription) (ok bool, reason string)
+
+// AddValidator adds a validator for subscription requests.
+// Multiple validators can exist on one hub.
+//
+// All subscriptions are accepted by default.
+func (h *Hub) AddValidator(validator HSubValidatorFunc) {
+	h.validators = append(h.validators, &validator)
+}
+
 // checks all validators asociated with the hub for the subscription.
 //
 // The validation stops as soon as one validator returns ok=false.
@@ -517,6 +506,17 @@ func (h *Hub) verifyIntent(sub *HSubscription, mode string) (ok bool, err error)
 	}
 
 	return true, nil
+}
+
+// A topic sniffer sniffs on topics as if it was a subscriber.
+type HTopicSnifferFunc = func(topic string, contentType string, body io.Reader)
+
+// AddSniffer allows one to "sniff" publishes, receiving events
+// as if they were subscribers.
+//
+// If an emptry string is provided as the topic, all publishes are sniffed.
+func (h *Hub) AddSniffer(topic string, sniffer HTopicSnifferFunc) {
+	h.sniffers[topic] = append(h.sniffers[topic], &sniffer)
 }
 
 // Publish publishes a topic with the specified content and content-type.
@@ -679,30 +679,28 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 	}
 }
 
-// Returns a JSON array of the topics currently known by the hub.
+// Returns an array of all topics.
 //
 // Includes topics with no subscribers, or no publishes.
-func (h *Hub) _getTopics() ([]byte, error) {
-	keys := make([]string, 0, len(h.subscriptions))
-	for k := range h.subscriptions {
-		keys = append(keys, k)
+func (h *Hub) GetTopics() (topics []string) {
+	topics = make([]string, 0, len(h.subscriptions))
+	for topic := range h.subscriptions {
+		topics = append(topics, topic)
 	}
 
-	bytes, err := json.Marshal(keys)
-	if err != nil {
-		return nil, err
-	}
-	return bytes, nil
+	return
 }
 
 // Handles requests to /topics when h.exposeTopics is enabled.
-func (h *Hub) getTopics(w http.ResponseWriter, r *http.Request) {
+func (h *Hub) getTopicsHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	bytes, err := h._getTopics()
+	topics := h.GetTopics()
+
+	bytes, err := json.Marshal(topics)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -725,12 +723,13 @@ func (h *Hub) getTopics(w http.ResponseWriter, r *http.Request) {
 
 func (h *Hub) publishTopicUpdates() {
 	for range h.newTopic {
-		bytes, err := h._getTopics()
+		bytes, err := json.Marshal(h.GetTopics())
 		if err != nil {
 			log.Err(err).Msg("could not marshal topic json on publish")
+			return
 		}
 
-		go h.Publish(h.hubUrl+"/topics", "application/json", bytes)
+		h.Publish(h.hubUrl+"/topics", "application/json", bytes)
 	}
 }
 

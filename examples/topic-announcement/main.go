@@ -34,14 +34,15 @@ func main() {
 		websub.HAllowPostBodyAsContent(true),
 		websub.HWithHashFunction("sha256"),
 		websub.HExposeTopics(true),
-		websub.HWithSniffer("", func(topic, contentType string, body io.Reader) {
-			bytes, err := io.ReadAll(body)
-			if err != nil {
-				log.Err(err).Msg("error reading body in sniffer")
-			}
-			fmt.Printf("[global sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, string(bytes))
-		}),
 	)
+
+	h.AddSniffer("", func(topic, contentType string, body io.Reader) {
+		bytes, err := io.ReadAll(body)
+		if err != nil {
+			log.Err(err).Msg("error reading body in sniffer")
+		}
+		fmt.Printf("[global sniffer] new publish:\n      topic: %s\n      content-type: %s\n      body: %s\n", topic, contentType, string(bytes))
+	})
 
 	// register handlers
 	mux.Handle("/sub/", http.StripPrefix("/sub", s))

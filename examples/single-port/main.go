@@ -24,13 +24,13 @@ func main() {
 	p := websub.NewPublisher(
 		baseUrl+"/topic/",
 		baseUrl+"/hub/",
-		websub.PWithPostBodyAsContent(true),
-		websub.PAdvertiseInvalidTopics(true),
+		// websub.PWithPostBodyAsContent(true),
+		// websub.PAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
 		baseUrl+"/hub/",
-		websub.HAllowPostBodyAsContent(true),
+		// websub.HAllowPostBodyAsContent(true),
 		websub.HWithHashFunction("sha256"),
 	)
 
