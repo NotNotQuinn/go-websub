@@ -47,7 +47,7 @@ func main() {
 		panic(err) // handle
 	}
 
-	// After publishing, the content is availible at
+	// After publishing, the content is available at
 	// http://localhost:3033/helloWebSub
 	// with the proper Link headers advertising the hub and self URLs.
 
