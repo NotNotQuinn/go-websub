@@ -324,7 +324,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		h.mu.RLock()
 		cond := h.subscriptions[topic] != nil
-		h.mu.RLock()
+		h.mu.RUnlock()
 		if cond {
 			h.mu.Lock()
 			sub = h.subscriptions[topic][callback]
