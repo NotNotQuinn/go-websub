@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/tomnomnom/linkheader"
 )
@@ -27,11 +28,13 @@ type Publisher struct {
 	baseUrl                string
 	hubUrl                 string
 	// maps id to published content
+	// TODO: Use RWMutex for this
 	publishedContent map[string]*publishedContent
+	mu               *sync.RWMutex
 }
 
 // BaseUrl returns the base URL of this publisher (with any trailing slash trimmed)
-func (p Publisher) BaseUrl() string {
+func (p *Publisher) BaseUrl() string {
 	return p.baseUrl
 }
 
@@ -77,10 +80,12 @@ func (p *Publisher) Publish(topic string, contentType string, content []byte) er
 	if strings.HasPrefix(topic, p.baseUrl+"/") {
 		// "https://example.com/baseUrl/topic/1////" gets stored as "topic/1"
 		// removing a trailing slash
+		p.mu.Lock()
 		p.publishedContent[strings.Trim(strings.TrimPrefix(topic, p.baseUrl+"/"), "/")] = &publishedContent{
 			contentType: contentType,
 			content:     content,
 		}
+		p.mu.Unlock()
 	}
 
 	return p.sendPublishRequest(topic, contentType, content)
@@ -161,7 +166,9 @@ func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// request to "//////topic/1/////" gets treated as equal to "/topic/1/"
 	// stored as "topic/1"
 	id := strings.Trim(r.URL.Path, "/")
+	p.mu.RLock()
 	pub := p.publishedContent[id]
+	p.mu.RUnlock()
 
 	if (pub == nil && !p.advertiseInvalidTopics) || id == "" {
 		w.WriteHeader(404)
