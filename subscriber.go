@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +17,9 @@ import (
 )
 
 // TODO: refresh expiring subscriptions
+// TODO: expose a list of all subscriptions via go API or something
+//       so people can unsubscribe without needing to keep track of their
+//       own subscriptions
 
 var (
 	// topic not discoverable
@@ -49,6 +53,8 @@ type SubscriberSubscription struct {
 type Subscriber struct {
 	// Maps subscription id to subscription
 	subscriptions map[string]*SubscriberSubscription
+	// subscriptions map guard
+	mu *sync.RWMutex
 	// Base URL for this subscribers callback URLs.
 	baseUrl string
 	// Lease length used for all subscriptions. Default 240 hours.
@@ -75,7 +81,9 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	subId := strings.TrimPrefix(r.URL.Path, "/")
 	switch r.Method {
 	case http.MethodGet:
+		s.mu.RLock()
 		sub, ok := s.subscriptions[subId]
+		s.mu.RUnlock()
 		if !ok || sub == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("subscription not found"))
@@ -101,7 +109,9 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch q.Get("hub.mode") {
 		case "denied":
 			// the hub denied a subscription request
+			s.mu.Lock()
 			delete(s.subscriptions, subId)
+			s.mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 
 			log.Error().
@@ -122,7 +132,9 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				// The hub will take a 5xx to mean verification failed,
 				// so remove this subscription
+				s.mu.Lock()
 				delete(s.subscriptions, subId)
+				s.mu.Unlock()
 
 				log.Err(err).
 					Str("msg", "could not convert 'hub.lease_seconds' from string to int").
@@ -146,7 +158,9 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			s.mu.Lock()
 			delete(s.subscriptions, subId)
+			s.mu.Unlock()
 			sub.pendingUnsubscribe = false
 
 			w.WriteHeader(200)
@@ -159,7 +173,9 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case http.MethodPost:
+		s.mu.RLock()
 		sub, ok := s.subscriptions[subId]
+		s.mu.RUnlock()
 		if !ok || sub == nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("subscription not found"))
@@ -260,7 +276,9 @@ func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallba
 		pendingSubscribe: true,
 	}
 
+	s.mu.RLock()
 	s.subscriptions[sub.Id] = sub
+	s.mu.RUnlock()
 
 	err = s.sendRequest(sub, "subscribe")
 
