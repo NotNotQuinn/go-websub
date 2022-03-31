@@ -729,7 +729,10 @@ func (h *Hub) publishTopicUpdates() {
 			return
 		}
 
-		h.Publish(h.hubUrl+"/topics", "application/json", bytes)
+		// Must be run in goroutine, otherwise there is deadlock
+		// on the first publish to this topic because h.newTopic
+		// is unbuffered and h.Publish sends a new message
+		go h.Publish(h.hubUrl+"/topics", "application/json", bytes)
 	}
 }
 
