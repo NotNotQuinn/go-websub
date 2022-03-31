@@ -19,7 +19,7 @@ var log = websub.Logger()
 func sub_main() {
 	s := websub.NewSubscriber(
 		"http://localhost:3033/",
-		websub.SWithLeaseLength(time.Hour),
+		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	go http.ListenAndServe("127.0.0.1:3033", s)
@@ -32,7 +32,7 @@ func sub_main() {
 		"http://localhost:7070/count",
 		"random secret string used for verifying the hub actually "+
 			"sent you the content and not some random script kiddie",
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			fmt.Printf("Topic %s updated. %v\n", sub.Topic, time.Now().Unix())
 			fmt.Printf("contentType: %v\n", contentType)
 			bytes, err := io.ReadAll(body)
@@ -55,7 +55,7 @@ func pub_main() {
 	p := websub.NewPublisher(
 		"http://localhost:7070/",
 		"http://localhost:8080/",
-		websub.PWithPostBodyAsContent(true),
+		websub.PublisherWithPostBodyAsContent(true),
 	)
 
 	go http.ListenAndServe("127.0.0.1:7070", p)
@@ -85,8 +85,8 @@ func pub_main() {
 func hub_main() {
 	h := websub.NewHub(
 		"http://localhost:8080/",
-		websub.HAllowPostBodyAsContent(true),
-		websub.HWithHashFunction("sha256"),
+		websub.HubAllowPostBodyAsContent(true),
+		websub.HubWithHashFunction("sha256"),
 	)
 	go http.ListenAndServe("127.0.0.1:8080", h)
 	fmt.Println("[hub] Listening on 127.0.0.1:8080")
@@ -95,7 +95,7 @@ func hub_main() {
 func main() {
 	/*
 		Each of these *_main functions could be a stand-alone process
-		or entirely sperated on a seperate server.
+		or entirely separated on a separate server.
 
 		So long as they have the correct URLs in relation to eachother.
 	*/

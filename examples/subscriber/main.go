@@ -28,7 +28,7 @@ func main() {
 		// Callback function is called when the subscriber receives a valid
 		// request from the hub, not on invalid ones
 		// (for example ones with a missing or invalid hub signature)
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			// Note: With this topic URL,
 			// I don't think its possible to receive a publish.
 			fmt.Println("Received publish!")

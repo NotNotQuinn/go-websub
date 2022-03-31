@@ -62,7 +62,7 @@ Interact with the subscriber via a Go API:
 		// Callback function is called when the subscriber receives a valid
 		// request from the hub, not on invalid ones
 		// (for example ones with a missing or invalid hub signature)
-		func(sub *websub.SSubscription, contentType string, body io.Reader) {
+		func(sub *websub.SubscriberSubscription, contentType string, body io.Reader) {
 			fmt.Println("Received content!")
 			// do something...
 		},
@@ -138,7 +138,7 @@ Interact with the hub via a Go API:
     - Example:
 	```go
 	// Deny any subscription where the callback URL is not under "example.com"
-	h.AddValidator(func(sub *websub.HSubscription) (ok bool, reason string) {
+	h.AddValidator(func(sub *websub.HubSubscription) (ok bool, reason string) {
 		parsed, err := url.Parse(sub.Callback)
 		if err != nil {
 			return false, "invalid callback url"
