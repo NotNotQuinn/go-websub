@@ -399,10 +399,10 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						cond := h.subscriptions[sub.Topic] == nil
 						h.mu.RUnlock()
 						if cond {
-							h.newTopic <- sub.Topic
 							h.mu.Lock()
 							h.subscriptions[sub.Topic] = make(map[string]*HubSubscription)
 							h.mu.Unlock()
+							h.newTopic <- sub.Topic
 						}
 						h.mu.Lock()
 						h.subscriptions[sub.Topic][sub.Callback] = sub
@@ -546,10 +546,10 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 	cond := h.subscriptions[topic] == nil
 	h.mu.RUnlock()
 	if cond {
-		h.newTopic <- topic
 		h.mu.Lock()
 		h.subscriptions[topic] = make(map[string]*HubSubscription)
 		h.mu.Unlock()
+		h.newTopic <- topic
 	}
 
 	// call all sniffers for this topic, even if no subscriptions exist.
@@ -731,8 +731,8 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 //
 // Includes topics with no subscribers, or no publishes.
 func (h *Hub) GetTopics() (topics []string) {
-	topics = make([]string, 0, len(h.subscriptions))
 	h.mu.RLock()
+	topics = make([]string, 0, len(h.subscriptions))
 	for topic := range h.subscriptions {
 		topics = append(topics, topic)
 	}
