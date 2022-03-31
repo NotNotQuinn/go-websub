@@ -199,10 +199,10 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
+			go sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
 		} else {
 			// no secret
-			sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
+			go sub.callback(sub, r.Header.Get("Content-Type"), contentReader)
 		}
 
 	default:
