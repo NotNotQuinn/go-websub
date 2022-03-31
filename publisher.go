@@ -43,6 +43,7 @@ func NewPublisher(baseUrl, hubUrl string, options ...PublisherOption) *Publisher
 		baseUrl:          strings.TrimSuffix(baseUrl, "/"),
 		hubUrl:           hubUrl,
 		publishedContent: make(map[string]*publishedContent),
+		mu:               &sync.RWMutex{},
 	}
 
 	for _, opt := range options {

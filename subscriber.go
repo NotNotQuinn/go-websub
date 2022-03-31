@@ -65,6 +65,7 @@ type Subscriber struct {
 func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
 		subscriptions: make(map[string]*SubscriberSubscription),
+		mu:            &sync.RWMutex{},
 		baseUrl:       strings.TrimRight(baseUrl, "/"),
 		leaseLength:   time.Hour * 24 * 10,
 	}
