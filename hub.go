@@ -117,6 +117,7 @@ func NewHub(hubUrl string, options ...HubOption) *Hub {
 		failedPublishes: make(chan *hubPublish),
 		newTopic:        make(chan string),
 		subscriptions:   make(map[string]map[string]*HubSubscription),
+		mu:              &sync.RWMutex{},
 		sniffers:        make(map[string][]*HubTopicSnifferFunc),
 	}
 
