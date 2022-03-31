@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,6 +54,8 @@ type Hub struct {
 	cleanupInterval time.Duration
 	// maps topic and callback to subscription, in that order.
 	subscriptions map[string]map[string]*HubSubscription
+	// Mutex lock for subscriptions map
+	mu *sync.RWMutex
 	// Validators that validate each incoming subscription request.
 	validators []*HubSubValidatorFunc
 	// Sniffers that intercept publishes as if they were subscribed to a topic.
@@ -315,8 +318,16 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var sub *HubSubscription
 		update := false
 
-		if h.subscriptions[q.Get("hub.topic")] != nil {
-			sub = h.subscriptions[q.Get("hub.topic")][q.Get("hub.callback")]
+		topic := q.Get("hub.topic")
+		callback := q.Get("hub.callback")
+
+		h.mu.RLock()
+		cond := h.subscriptions[topic] != nil
+		h.mu.RLock()
+		if cond {
+			h.mu.Lock()
+			sub = h.subscriptions[topic][callback]
+			h.mu.Unlock()
 		}
 
 		if sub == nil && unsubscribe {
@@ -327,8 +338,8 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		if sub == nil {
 			sub = &HubSubscription{
-				Callback:    q.Get("hub.callback"),
-				Topic:       q.Get("hub.topic"),
+				Callback:    callback,
+				Topic:       topic,
 				Secret:      q.Get("hub.secret"),
 				LeaseLength: leaseLength,
 			}
@@ -374,18 +385,27 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			if ok {
 				if unsubscribe {
+					h.mu.Lock()
 					delete(h.subscriptions[sub.Topic], sub.Callback)
+					h.mu.Unlock()
 				} else {
 					sub.Expires = time.Now().Add(time.Duration(leaseLength) * time.Second)
 					if update {
 						sub.LeaseLength = leaseLength
 						sub.Secret = q.Get("hub.secret")
 					} else {
-						if h.subscriptions[sub.Topic] == nil {
+						h.mu.RLock()
+						cond := h.subscriptions[sub.Topic] == nil
+						h.mu.RUnlock()
+						if cond {
 							h.newTopic <- sub.Topic
+							h.mu.Lock()
 							h.subscriptions[sub.Topic] = make(map[string]*HubSubscription)
+							h.mu.Unlock()
 						}
+						h.mu.Lock()
 						h.subscriptions[sub.Topic][sub.Callback] = sub
+						h.mu.Unlock()
 					}
 				}
 			}
@@ -521,9 +541,14 @@ func (h *Hub) AddSniffer(topic string, sniffer HubTopicSnifferFunc) {
 
 // Publish publishes a topic with the specified content and content-type.
 func (h *Hub) Publish(topic, contentType string, content []byte) {
-	if h.subscriptions[topic] == nil {
+	h.mu.RLock()
+	cond := h.subscriptions[topic] == nil
+	h.mu.RUnlock()
+	if cond {
 		h.newTopic <- topic
+		h.mu.Lock()
 		h.subscriptions[topic] = make(map[string]*HubSubscription)
+		h.mu.Unlock()
 	}
 
 	// call all sniffers for this topic, even if no subscriptions exist.
@@ -537,6 +562,7 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 		}
 	}()
 
+	h.mu.RLock()
 	for _, sub := range h.subscriptions[topic] {
 		if sub.Expires.After(time.Now()) {
 
@@ -562,6 +588,7 @@ func (h *Hub) Publish(topic, contentType string, content []byte) {
 			}(sub)
 		}
 	}
+	h.mu.RUnlock()
 }
 
 // disbatchPublish sends a publish request (POST) for the publish object.
@@ -669,12 +696,32 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 	t := time.NewTicker(interval)
 	for {
 		<-t.C
+
+		var deleteMe []struct {
+			topic, callback string
+		}
+
+		h.mu.RLock()
 		for topic, subs := range h.subscriptions {
 			for callback, sub := range subs {
 				if !sub.Expires.After(time.Now()) {
-					delete(h.subscriptions[topic], callback)
+					deleteMe = append(deleteMe, struct {
+						topic, callback string
+					}{
+						topic:    topic,
+						callback: callback,
+					})
 				}
 			}
+		}
+		h.mu.RUnlock()
+
+		if len(deleteMe) > 0 {
+			h.mu.Lock()
+			for _, v := range deleteMe {
+				delete(h.subscriptions[v.topic], v.callback)
+			}
+			h.mu.Unlock()
 		}
 	}
 }
@@ -684,9 +731,11 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 // Includes topics with no subscribers, or no publishes.
 func (h *Hub) GetTopics() (topics []string) {
 	topics = make([]string, 0, len(h.subscriptions))
+	h.mu.RLock()
 	for topic := range h.subscriptions {
 		topics = append(topics, topic)
 	}
+	h.mu.RUnlock()
 
 	return
 }
