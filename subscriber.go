@@ -30,7 +30,7 @@ var (
 	ErrNon2xxOnSubReq = errors.New("hub returned an invalid status code on subscription or unsubscription request")
 )
 
-// a SubscriberSubscription is a subscription in the context of a Subscriber.
+// SubscriberSubscription is a subscription in the context of a Subscriber.
 type SubscriberSubscription struct {
 	// Topic URL for this subscription.
 	// Not always equal to the passed topic url.
@@ -43,7 +43,7 @@ type SubscriberSubscription struct {
 	// The date/time this subscription expires.
 	Expires time.Time
 	// Internal ID for this subscription. Part of the callback URL.
-	Id string
+	ID string
 	// Callback function to be invoked when a publish is received.
 	callback SubscribeCallback
 	// Whether this subscription is pending a subscription verification
@@ -58,17 +58,17 @@ type Subscriber struct {
 	// subscriptions map guard
 	mu *sync.RWMutex
 	// Base URL for this subscribers callback URLs.
-	baseUrl string
+	baseURL string
 	// Lease length used for all subscriptions. Default 240 hours.
 	leaseLength time.Duration
 }
 
 // NewSubscriber creates a new subscriber with the specified options.
-func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
+func NewSubscriber(baseURL string, options ...SubscriberOption) *Subscriber {
 	s := &Subscriber{
 		subscriptions: make(map[string]*SubscriberSubscription),
 		mu:            &sync.RWMutex{},
-		baseUrl:       strings.TrimRight(baseUrl, "/"),
+		baseURL:       strings.TrimRight(baseURL, "/"),
 		leaseLength:   time.Hour * 24 * 10,
 	}
 
@@ -81,11 +81,11 @@ func NewSubscriber(baseUrl string, options ...SubscriberOption) *Subscriber {
 
 // ServeHTTP handles all incoming HTTP requests, following websub spec.
 func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	subId := strings.TrimPrefix(r.URL.Path, "/")
+	subID := strings.TrimPrefix(r.URL.Path, "/")
 	switch r.Method {
 	case http.MethodGet:
 		s.mu.RLock()
-		sub, ok := s.subscriptions[subId]
+		sub, ok := s.subscriptions[subID]
 		s.mu.RUnlock()
 		if !ok || sub == nil {
 			w.WriteHeader(http.StatusNotFound)
@@ -113,7 +113,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "denied":
 			// the hub denied a subscription request
 			s.mu.Lock()
-			delete(s.subscriptions, subId)
+			delete(s.subscriptions, subID)
 			s.mu.Unlock()
 			w.WriteHeader(http.StatusOK)
 
@@ -136,7 +136,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				// The hub will take a 5xx to mean verification failed,
 				// so remove this subscription
 				s.mu.Lock()
-				delete(s.subscriptions, subId)
+				delete(s.subscriptions, subID)
 				s.mu.Unlock()
 
 				log.Err(err).
@@ -162,7 +162,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 
 			s.mu.Lock()
-			delete(s.subscriptions, subId)
+			delete(s.subscriptions, subID)
 			s.mu.Unlock()
 			sub.pendingUnsubscribe = false
 
@@ -177,7 +177,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case http.MethodPost:
 		s.mu.RLock()
-		sub, ok := s.subscriptions[subId]
+		sub, ok := s.subscriptions[subID]
 		s.mu.RUnlock()
 		if !ok || sub == nil {
 			w.WriteHeader(http.StatusNotFound)
@@ -231,17 +231,17 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Returns the base URL for this subscribers callback URLs.
-func (s Subscriber) BaseUrl() string {
-	return s.baseUrl
+// BaseURL eturns the base URL for this subscribers callback URLs.
+func (s Subscriber) BaseURL() string {
+	return s.baseURL
 }
 
 type SubscriberOption func(*Subscriber)
 
-// SubscriberWithBaseUrl sets the baseUrl for a subscriber
-func SubscriberWithBaseUrl(baseUrl string) SubscriberOption {
+// SubscriberWithBaseURL sets the baseUrl for a subscriber
+func SubscriberWithBaseURL(baseURL string) SubscriberOption {
 	return func(s *Subscriber) {
-		s.baseUrl = strings.TrimRight(baseUrl, "/")
+		s.baseURL = strings.TrimRight(baseURL, "/")
 	}
 }
 
@@ -254,16 +254,16 @@ func SubscriberWithLeaseLength(LeaseLength time.Duration) SubscriberOption {
 	}
 }
 
-// a SubscribeCallback is called when a subscriber receives a publish to the related topic.
+// SubscribeCallback is called when a subscriber receives a publish to the related topic.
 type SubscribeCallback func(sub *SubscriberSubscription, contentType string, body io.Reader)
 
-// subscribes to updates to the topicUrl, verifying using the secret
+// Subscribe subscribes to updates to the topicUrl, verifying using the secret
 //
 // If the secret is an empty string, it is omitted.
 //
 // When updates happen, the callback is called.
-func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallback) (*SubscriberSubscription, error) {
-	self, hub, err := s.discover(topicUrl)
+func (s *Subscriber) Subscribe(topicURL, secret string, callback SubscribeCallback) (*SubscriberSubscription, error) {
+	self, hub, err := s.discover(topicURL)
 
 	if err != nil {
 		return nil, err
@@ -273,14 +273,14 @@ func (s *Subscriber) Subscribe(topicUrl, secret string, callback SubscribeCallba
 		Topic:            self,
 		Hub:              hub,
 		Expires:          time.Now().Add(s.leaseLength),
-		Id:               uuid.New().String(),
+		ID:               uuid.New().String(),
 		Secret:           secret,
 		callback:         callback,
 		pendingSubscribe: true,
 	}
 
 	s.mu.RLock()
-	s.subscriptions[sub.Id] = sub
+	s.subscriptions[sub.ID] = sub
 	s.mu.RUnlock()
 
 	err = s.sendRequest(sub, "subscribe")
@@ -309,7 +309,7 @@ func (s *Subscriber) sendRequest(sub *SubscriberSubscription, mode string) error
 	vals := url.Values{
 		"hub.mode":          []string{mode},
 		"hub.topic":         []string{sub.Topic},
-		"hub.callback":      []string{s.baseUrl + "/" + sub.Id},
+		"hub.callback":      []string{s.baseURL + "/" + sub.ID},
 		"hub.lease_seconds": []string{fmt.Sprint(int(s.leaseLength.Seconds()))},
 	}
 

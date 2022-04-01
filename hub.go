@@ -33,7 +33,7 @@ type Hub struct {
 	// expose topics to /topics
 	exposeTopics bool
 	// The hub url that specifies this hub.
-	hubUrl string
+	hubURL string
 	// The user-agent to send on all http requests this hub makes.
 	userAgent string
 	// The hash function used to sign content distribution requests
@@ -83,7 +83,7 @@ type hubPublish struct {
 	failedCount int
 }
 
-// an HubSubscription is a subscription used in the context of a Hub.
+// HubSubscription is a subscription used in the context of a Hub.
 type HubSubscription struct {
 	// The HTTP callback to the subscriber.
 	Callback string
@@ -98,14 +98,14 @@ type HubSubscription struct {
 	Secret string
 }
 
-func (h Hub) HubUrl() string {
-	return h.hubUrl
+func (h Hub) HubURL() string {
+	return h.hubURL
 }
 
 // NewHub creates a new hub with the specified options and starts background goroutines.
-func NewHub(hubUrl string, options ...HubOption) *Hub {
+func NewHub(hubURL string, options ...HubOption) *Hub {
 	h := &Hub{
-		hubUrl:          strings.TrimRight(hubUrl, "/"),
+		hubURL:          strings.TrimRight(hubURL, "/"),
 		userAgent:       "go-websub-hub",
 		hashFunction:    "sha1",
 		retryInterval:   time.Minute,
@@ -216,7 +216,7 @@ func HubWithRetryLimits(retryLimit int, retryInterval time.Duration) HubOption {
 	}
 }
 
-// Handles incoming HTTP requests
+// ServeHTTP handles incoming HTTP requests
 func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Path == "/topics" && h.exposeTopics {
@@ -238,7 +238,7 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Body.Close()
 
 	var useBody = true
-	var q url.Values = r.URL.Query()
+	q := r.URL.Query()
 	if !h.allowPostBodyAsContent || q.Get("hub.content") != "body" {
 		if r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
 			http.Error(w,
@@ -529,7 +529,7 @@ func (h *Hub) verifyIntent(sub *HubSubscription, mode string) (ok bool, err erro
 	return true, nil
 }
 
-// A topic sniffer sniffs on topics as if it was a subscriber.
+// HubTopicSnifferFunc sniffs on topics as if it was a subscriber.
 type HubTopicSnifferFunc func(topic string, contentType string, body io.Reader)
 
 // AddSniffer allows one to "sniff" publishes, receiving events
@@ -607,7 +607,7 @@ func (h *Hub) disbatchPublish(pub *hubPublish) error {
 		},
 		{
 			Rel: "hub",
-			URL: h.hubUrl,
+			URL: h.hubURL,
 		},
 	}.String())
 
@@ -727,7 +727,7 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 	}
 }
 
-// Returns an array of all topics.
+// GetTopics eturns an array of all topics.
 //
 // Includes topics with no subscribers, or no publishes.
 func (h *Hub) GetTopics() (topics []string) {
@@ -760,16 +760,15 @@ func (h *Hub) getTopicsHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Link", linkheader.Links{
 		{
 			Rel: "self",
-			URL: h.hubUrl + "/topics",
+			URL: h.hubURL + "/topics",
 		},
 		{
 			Rel: "hub",
-			URL: h.hubUrl + "/",
+			URL: h.hubURL + "/",
 		}}.String())
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
 	w.Write(bytes)
-	return
 }
 
 // HubTopicUpdates is the JSON structure that is exposed to /topics when h.exposeTopics is true
@@ -794,7 +793,7 @@ func (h *Hub) publishTopicUpdates() {
 		// Must be run in goroutine, otherwise there is deadlock
 		// on the first publish to this topic because h.newTopic
 		// is unbuffered and h.Publish sends a new message
-		go h.Publish(h.hubUrl+"/topics", "application/json", bytes)
+		go h.Publish(h.hubURL+"/topics", "application/json", bytes)
 	}
 }
 

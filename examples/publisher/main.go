@@ -36,7 +36,7 @@ func main() {
 	fmt.Println("[publisher] Publishing!")
 	err := p.Publish(
 		// Topic URL ("http://localhost:3033/helloWebSub")
-		p.BaseUrl()+"/helloWebSub",
+		p.BaseURL()+"/helloWebSub",
 		// Content Type
 		"text/plain",
 		// Content
@@ -84,7 +84,7 @@ func main() {
 	fmt.Println("[publisher] Publishing again!")
 	err = p.Publish(
 		// Topic URL ("http://localhost:3033/helloWebSub")
-		p.BaseUrl()+"/helloWebSub",
+		p.BaseURL()+"/helloWebSub",
 		// Content Type
 		"text/plain",
 		// Content
