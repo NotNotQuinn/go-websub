@@ -16,7 +16,7 @@ var log = websub.Logger()
 // wait 5 seconds
 //
 // Subscribe to events on localhost:7070/count
-func sub_main() {
+func subMain() {
 	s := websub.NewSubscriber(
 		"http://localhost:3033/",
 		websub.SubscriberWithLeaseLength(time.Hour),
@@ -51,7 +51,7 @@ func sub_main() {
 // create a new publisher listening on port :7070 using a hub on :8080.
 //
 // Generate publishes on localhost:7070/count
-func pub_main() {
+func pubMain() {
 	p := websub.NewPublisher(
 		"http://localhost:7070/",
 		"http://localhost:8080/",
@@ -82,7 +82,7 @@ func pub_main() {
 }
 
 // create a new hub and listen on port :8080
-func hub_main() {
+func hubMain() {
 	h := websub.NewHub(
 		"http://localhost:8080/",
 		websub.HubAllowPostBodyAsContent(true),
@@ -94,14 +94,14 @@ func hub_main() {
 
 func main() {
 	/*
-		Each of these *_main functions could be a stand-alone process
+		Each of these *Main functions could be a stand-alone process
 		or entirely separated on a separate server.
 
 		So long as they have the correct URLs in relation to eachother.
 	*/
 
-	go hub_main()
-	go pub_main()
-	go sub_main()
+	go hubMain()
+	go pubMain()
+	go subMain()
 	<-make(chan struct{})
 }

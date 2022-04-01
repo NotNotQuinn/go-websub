@@ -25,23 +25,23 @@ type publishedContent struct {
 type Publisher struct {
 	postBodyAsContent      bool
 	advertiseInvalidTopics bool
-	baseUrl                string
-	hubUrl                 string
+	baseURL                string
+	hubURL                 string
 	// maps id to published content
 	publishedContent map[string]*publishedContent
 	// guard for publishedContent
 	mu *sync.RWMutex
 }
 
-// BaseUrl returns the base URL of this publisher (with any trailing slash trimmed)
-func (p *Publisher) BaseUrl() string {
-	return p.baseUrl
+// BaseURL returns the base URL of this publisher (with any trailing slash trimmed)
+func (p *Publisher) BaseURL() string {
+	return p.baseURL
 }
 
-func NewPublisher(baseUrl, hubUrl string, options ...PublisherOption) *Publisher {
+func NewPublisher(baseURL, hubURL string, options ...PublisherOption) *Publisher {
 	p := &Publisher{
-		baseUrl:          strings.TrimSuffix(baseUrl, "/"),
-		hubUrl:           hubUrl,
+		baseURL:          strings.TrimSuffix(baseURL, "/"),
+		hubURL:           hubURL,
 		publishedContent: make(map[string]*publishedContent),
 		mu:               &sync.RWMutex{},
 	}
@@ -78,11 +78,11 @@ func PublisherAdvertiseInvalidTopics(enabled bool) PublisherOption {
 // If the topic URL starts with this publisher's base URL, the publisher
 // will return the content on HTTP GET requests to that url.
 func (p *Publisher) Publish(topic string, contentType string, content []byte) error {
-	if strings.HasPrefix(topic, p.baseUrl+"/") {
-		// "https://example.com/baseUrl/topic/1////" gets stored as "topic/1"
+	if strings.HasPrefix(topic, p.baseURL+"/") {
+		// "https://example.com/baseURL/topic/1////" gets stored as "topic/1"
 		// removing a trailing slash
 		p.mu.Lock()
-		p.publishedContent[strings.Trim(strings.TrimPrefix(topic, p.baseUrl+"/"), "/")] = &publishedContent{
+		p.publishedContent[strings.Trim(strings.TrimPrefix(topic, p.baseURL+"/"), "/")] = &publishedContent{
 			contentType: contentType,
 			content:     content,
 		}
@@ -103,12 +103,12 @@ func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte
 		"hub.url":   []string{topic},
 	}
 
-	var hubUrl string
+	var hubURL string
 	var reqContentType string
 	var body io.Reader
 
 	if p.postBodyAsContent {
-		parsed, err := url.Parse(p.hubUrl)
+		parsed, err := url.Parse(p.hubURL)
 		if err != nil {
 			return err
 		}
@@ -117,15 +117,15 @@ func (p *Publisher) sendPublishRequest(topic, contentType string, content []byte
 
 		parsed.RawQuery = strings.TrimPrefix(parsed.Query().Encode()+"&"+values.Encode(), "&")
 		reqContentType = contentType
-		hubUrl = parsed.String()
+		hubURL = parsed.String()
 		body = bytes.NewReader(content)
 	} else {
 		reqContentType = "application/x-www-form-urlencoded"
-		hubUrl = p.hubUrl
+		hubURL = p.hubURL
 		body = strings.NewReader(values.Encode())
 	}
 
-	resp, err := http.Post(hubUrl, reqContentType, body)
+	resp, err := http.Post(hubURL, reqContentType, body)
 	if err != nil {
 		return err
 	}
@@ -179,11 +179,11 @@ func (p *Publisher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Link", linkheader.Links{
 		{
 			Rel: "self",
-			URL: p.baseUrl + "/" + id,
+			URL: p.baseURL + "/" + id,
 		},
 		{
 			Rel: "hub",
-			URL: p.hubUrl,
+			URL: p.hubURL,
 		},
 	}.String())
 
