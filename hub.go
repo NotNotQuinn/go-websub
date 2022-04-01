@@ -748,9 +748,10 @@ func (h *Hub) getTopicsHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	topics := h.GetTopics()
+	bytes, err := json.Marshal(HubTopicUpdates{
+		AllTopics: h.GetTopics(),
+	})
 
-	bytes, err := json.Marshal(topics)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -771,9 +772,20 @@ func (h *Hub) getTopicsHTTP(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
+// HubTopicUpdates is the JSON structure that is exposed to /topics when h.exposeTopics is true
+type HubTopicUpdates struct {
+	// All topics currently known
+	AllTopics []string `json:"allTopics"`
+	// Only on websub events: the new topic that was added
+	NewTopic string `json:"newTopic,omitempty"`
+}
+
 func (h *Hub) publishTopicUpdates() {
-	for range h.newTopic {
-		bytes, err := json.Marshal(h.GetTopics())
+	for topic := range h.newTopic {
+		bytes, err := json.Marshal(HubTopicUpdates{
+			AllTopics: h.GetTopics(),
+			NewTopic:  topic,
+		})
 		if err != nil {
 			log.Err(err).Msg("could not marshal topic json on publish")
 			return
