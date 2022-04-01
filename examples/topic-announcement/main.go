@@ -14,23 +14,23 @@ var log = websub.Logger()
 
 func main() {
 	// initialize subscriber, hub, and publisher.
-	baseUrl := "http://localhost:3033"
+	baseURL := "http://localhost:3033"
 	mux := http.NewServeMux()
 
 	s := websub.NewSubscriber(
-		baseUrl+"/sub/",
+		baseURL+"/sub/",
 		websub.SubscriberWithLeaseLength(time.Hour),
 	)
 
 	p := websub.NewPublisher(
-		baseUrl+"/topic/",
-		baseUrl+"/hub/",
+		baseURL+"/topic/",
+		baseURL+"/hub/",
 		websub.PublisherWithPostBodyAsContent(true),
 		websub.PublisherAdvertiseInvalidTopics(true),
 	)
 
 	h := websub.NewHub(
-		baseUrl+"/hub/",
+		baseURL+"/hub/",
 		websub.HubAllowPostBodyAsContent(true),
 		websub.HubWithHashFunction("sha256"),
 		websub.HubExposeTopics(true),
@@ -64,7 +64,7 @@ func main() {
 
 			fmt.Println("\n--Publish.", time.Now().Unix())
 			err := p.Publish(
-				baseUrl+"/topic/count",
+				baseURL+"/topic/count",
 				"text/plain",
 				[]byte("count "+fmt.Sprint(i)),
 			)
@@ -96,7 +96,7 @@ func main() {
 
 	// subscribe to the hub finding new topics
 	_, err := s.Subscribe(
-		baseUrl+"/hub/topics",
+		baseURL+"/hub/topics",
 		"random secret string",
 		printSubscription,
 	)
@@ -107,7 +107,7 @@ func main() {
 
 	// subscribe to a topic
 	_, err = s.Subscribe(
-		baseUrl+"/topic/count",
+		baseURL+"/topic/count",
 		"random secret string",
 		printSubscription,
 	)
