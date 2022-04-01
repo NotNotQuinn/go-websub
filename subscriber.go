@@ -358,6 +358,10 @@ func (s *Subscriber) discover(topic string) (self string, hub string, err error)
 
 	resp, err := http.Get(topic)
 	if err != nil {
+		log.Error().
+			Err(err).
+			Str("topic-url", topic).
+			Msg("could not GET topic url")
 		return
 	}
 	defer resp.Body.Close()
