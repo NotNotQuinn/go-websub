@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tomnomnom/linkheader"
+	"golang.org/x/net/html"
 )
 
 // TODO: refresh expiring subscriptions
@@ -349,21 +351,47 @@ func (s *Subscriber) sendRequest(sub *SubscriberSubscription, mode string) error
 	return nil
 }
 
-// discover makes a GET request to the URL and checks link headers for "self", and "hub".
+// discover attempts to discover a topic
 //
-// Returns ErrTopicNotDiscoverable if either link is missing.
-func (Subscriber) discover(topic string) (self string, hub string, err error) {
+// Returns ErrTopicNotDiscoverable if links to self or hub are missing.
+func (s *Subscriber) discover(topic string) (self string, hub string, err error) {
+
 	resp, err := http.Get(topic)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Str("topic-url", topic).
-			Msg("could not GET topic url")
+		return
+	}
+	defer resp.Body.Close()
+
+	content, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return
 	}
 
-	defer resp.Body.Close()
+	self, hub, err = s.discoverHTTPHeader(resp, bytes.NewReader(content))
+	if err != nil && err != ErrTopicNotDiscoverable {
+		return "", "", err
+	}
 
+	if self != "" && hub != "" {
+		return self, hub, nil
+	}
+
+	self, hub, err = s.discoverHTTPHeader(resp, bytes.NewReader(content))
+	if err != nil && err != ErrTopicNotDiscoverable {
+		return "", "", err
+	}
+
+	if self != "" && hub != "" {
+		return self, hub, nil
+	}
+
+	return "", "", ErrTopicNotDiscoverable
+}
+
+// discoverHTTPHeader checks link headers for "self", and "hub".
+//
+// Returns ErrTopicNotDiscoverable if either link is missing.
+func (Subscriber) discoverHTTPHeader(resp *http.Response, body io.Reader) (self string, hub string, err error) {
 	// check for link headers
 	links := linkheader.ParseMultiple(resp.Header.Values("Link"))
 
@@ -382,4 +410,46 @@ func (Subscriber) discover(topic string) (self string, hub string, err error) {
 	}
 
 	return "", "", ErrTopicNotDiscoverable
+}
+
+// discoverHTMLTag checks HTML head for link tags with relations "self" and "hub".
+//
+// Returns ErrTopicNotDiscoverable if Content-Type is not text/html or if either was not found.
+func (Subscriber) discoverHTMLTag(resp *http.Response, body io.Reader) (self string, hub string, err error) {
+	tokenizer := html.NewTokenizer(body)
+
+	if mediatype, _, _ := mime.ParseMediaType(resp.Header.Get("Content-Type")); mediatype != "text/html" {
+		return "", "", ErrTopicNotDiscoverable
+	}
+
+	inHead := false
+	for {
+		tokenType := tokenizer.Next()
+
+		switch {
+		case tokenType == html.ErrorToken:
+			return "", "", ErrTopicNotDiscoverable
+
+		case tokenType == html.StartTagToken:
+			token := tokenizer.Token()
+			if token.Data == "head" {
+				inHead = true
+			}
+
+			if token.Data == "link" && inHead {
+				if token.Attr[0].Key == "rel" && token.Attr[0].Val == "hub" {
+					hub = token.Attr[1].Val
+				}
+				if token.Attr[0].Key == "rel" && token.Attr[0].Val == "self" {
+					self = token.Attr[1].Val
+				}
+			}
+
+		case tokenType == html.EndTagToken:
+			token := tokenizer.Token()
+			if token.Data == "head" {
+				return self, hub, nil
+			}
+		}
+	}
 }
