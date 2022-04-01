@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	log = zerolog.New(zerolog.NewConsoleWriter())
+	log = zerolog.New(zerolog.NewConsoleWriter()).With().Timestamp().Caller().Logger()
 )
 
 // Logger returns the logger the websub package uses
