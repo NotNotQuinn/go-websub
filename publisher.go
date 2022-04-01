@@ -28,9 +28,9 @@ type Publisher struct {
 	baseUrl                string
 	hubUrl                 string
 	// maps id to published content
-	// TODO: Use RWMutex for this
 	publishedContent map[string]*publishedContent
-	mu               *sync.RWMutex
+	// guard for publishedContent
+	mu *sync.RWMutex
 }
 
 // BaseUrl returns the base URL of this publisher (with any trailing slash trimmed)
