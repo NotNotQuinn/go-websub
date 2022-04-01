@@ -79,7 +79,7 @@ func PublisherAdvertiseInvalidTopics(enabled bool) PublisherOption {
 // will return the content on HTTP GET requests to that url.
 func (p *Publisher) Publish(topic string, contentType string, content []byte) error {
 	if strings.HasPrefix(topic, p.baseURL+"/") {
-		// "https://example.com/baseUrl/topic/1////" gets stored as "topic/1"
+		// "https://example.com/baseURL/topic/1////" gets stored as "topic/1"
 		// removing a trailing slash
 		p.mu.Lock()
 		p.publishedContent[strings.Trim(strings.TrimPrefix(topic, p.baseURL+"/"), "/")] = &publishedContent{

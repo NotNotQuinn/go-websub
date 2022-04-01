@@ -91,7 +91,7 @@ Interact with the subscriber via a Go API:
  - [x] Advertise topic and hub URLs for previously published topics.
  - [x] Send publish requests for topic URLs that arent under the publishers base URL.
  - [x] Send both `hub.topic` and `hub.url` on publish requests.
- - [x] Treat `https://example.com/baseUrl/topic/` equal to `https://example.com/baseUrl/topic`
+ - [x] Treat `https://example.com/baseURL/topic/` equal to `https://example.com/baseURL/topic`
        for incoming requests.
  - [x] Optionally advertise topic and hub URLs for unpublished topics.
  - [x] Optionally post content in publish request. (see [publisher publishing
@@ -105,7 +105,7 @@ Interact with the publisher via a Go API:
 	```go
 	err = p.Publish(
 		// Topic URL
-		p.BaseUrl()+"/topic1",
+		p.BaseURL()+"/topic1",
 		// Content Type
 		"text/plain",
 		// Content

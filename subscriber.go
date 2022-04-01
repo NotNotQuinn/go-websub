@@ -238,7 +238,7 @@ func (s Subscriber) BaseURL() string {
 
 type SubscriberOption func(*Subscriber)
 
-// SubscriberWithBaseURL sets the baseUrl for a subscriber
+// SubscriberWithBaseURL sets the baseURL for a subscriber
 func SubscriberWithBaseURL(baseURL string) SubscriberOption {
 	return func(s *Subscriber) {
 		s.baseURL = strings.TrimRight(baseURL, "/")
