@@ -231,7 +231,7 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// BaseURL eturns the base URL for this subscribers callback URLs.
+// BaseURL returns the base URL for this subscribers callback URLs.
 func (s Subscriber) BaseURL() string {
 	return s.baseURL
 }
