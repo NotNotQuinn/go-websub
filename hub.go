@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -727,7 +728,7 @@ func (h *Hub) removeExpiredSubscriptions(interval time.Duration) {
 	}
 }
 
-// GetTopics eturns an array of all topics.
+// GetTopics returns a sorted array of all topics.
 //
 // Includes topics with no subscribers, or no publishes.
 func (h *Hub) GetTopics() (topics []string) {
@@ -738,6 +739,7 @@ func (h *Hub) GetTopics() (topics []string) {
 	}
 	h.mu.RUnlock()
 
+	sort.Strings(topics)
 	return
 }
 
