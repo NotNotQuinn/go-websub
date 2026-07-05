@@ -149,6 +149,8 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			sub.Expires = time.Now().Add(time.Duration(seconds) * time.Second)
 			sub.pendingSubscribe = false
 
+			w.Header().Add("Content-Type", "application/octet-stream") // Fix for CVE-2026-50571
+			w.Header().Add("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(200)
 			w.Write([]byte(q.Get("hub.challenge")))
 			return
@@ -166,6 +168,8 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			sub.pendingUnsubscribe = false
 
+			w.Header().Add("Content-Type", "application/octet-stream") // Fix for CVE-2026-50571
+			w.Header().Add("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(200)
 			w.Write([]byte(q.Get("hub.challenge")))
 			return
