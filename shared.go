@@ -50,3 +50,14 @@ func calculateHash(hashFunction_, secret string, content []byte) (hashResult str
 	hashResult = hex.EncodeToString(mac.Sum(nil))
 	return hashResult, hashFunction
 }
+
+func validHubChallenge(challenge string) bool {
+	var valid = true
+
+	for _, c := range challenge {
+		// As per WebSub specification
+		valid = valid && ((c == 0x2B) || (0x2D <= c && c <= 0x39) || (c == 0x3D) || (0x41 <= c && c <= 0x5A) || (c == 0x5F) || (0x61 <= c && c <= 0x7A))
+	}
+
+	return valid
+}

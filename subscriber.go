@@ -146,6 +146,21 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			if !validHubChallenge(q.Get("hub.challenge")) {
+				s.mu.Lock()
+				delete(s.subscriptions, subID)
+				s.mu.Unlock()
+
+				log.Error().
+					Str("topic", q.Get("hub.topic")).
+					Str("msg", "'hub.challenge' value isn't acceptable").
+					Msg("Cannot reply with 'hub.challenge' value due to security considerations.")
+
+				w.WriteHeader(400)
+				w.Write([]byte("hub.challenge value not acceptable"))
+				return
+			}
+
 			sub.Expires = time.Now().Add(time.Duration(seconds) * time.Second)
 			sub.pendingSubscribe = false
 
@@ -160,6 +175,21 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !sub.pendingUnsubscribe {
 				w.WriteHeader(404)
 				w.Write([]byte("not pending unsubscription"))
+				return
+			}
+
+			if !validHubChallenge(q.Get("hub.challenge")) {
+				s.mu.Lock()
+				delete(s.subscriptions, subID)
+				s.mu.Unlock()
+
+				log.Error().
+					Str("topic", q.Get("hub.topic")).
+					Str("msg", "'hub.challenge' value isn't acceptable").
+					Msg("Cannot reply with 'hub.challenge' value due to security considerations.")
+
+				w.WriteHeader(400)
+				w.Write([]byte("hub.challenge value not acceptable"))
 				return
 			}
 
