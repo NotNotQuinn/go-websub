@@ -146,9 +146,26 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			if !validHubChallenge(q.Get("hub.challenge")) {
+				s.mu.Lock()
+				delete(s.subscriptions, subID)
+				s.mu.Unlock()
+
+				log.Error().
+					Str("topic", q.Get("hub.topic")).
+					Str("msg", "'hub.challenge' value isn't acceptable").
+					Msg("Cannot reply with 'hub.challenge' value due to security considerations.")
+
+				w.WriteHeader(400)
+				w.Write([]byte("hub.challenge value not acceptable"))
+				return
+			}
+
 			sub.Expires = time.Now().Add(time.Duration(seconds) * time.Second)
 			sub.pendingSubscribe = false
 
+			w.Header().Add("Content-Type", "application/octet-stream") // Fix for CVE-2026-50571
+			w.Header().Add("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(200)
 			w.Write([]byte(q.Get("hub.challenge")))
 			return
@@ -161,11 +178,28 @@ func (s *Subscriber) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			if !validHubChallenge(q.Get("hub.challenge")) {
+				s.mu.Lock()
+				delete(s.subscriptions, subID)
+				s.mu.Unlock()
+
+				log.Error().
+					Str("topic", q.Get("hub.topic")).
+					Str("msg", "'hub.challenge' value isn't acceptable").
+					Msg("Cannot reply with 'hub.challenge' value due to security considerations.")
+
+				w.WriteHeader(400)
+				w.Write([]byte("hub.challenge value not acceptable"))
+				return
+			}
+
 			s.mu.Lock()
 			delete(s.subscriptions, subID)
 			s.mu.Unlock()
 			sub.pendingUnsubscribe = false
 
+			w.Header().Add("Content-Type", "application/octet-stream") // Fix for CVE-2026-50571
+			w.Header().Add("X-Content-Type-Options", "nosniff")
 			w.WriteHeader(200)
 			w.Write([]byte(q.Get("hub.challenge")))
 			return
